@@ -169,6 +169,14 @@ NETWORK GROWTH:
                         <span class="text-gray-400">⛓️ Blockchain Height</span>
                         <span id="blocks-received" class="font-bold text-purple-400">0</span>
                     </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">🌍 Network Miners</span>
+                        <span id="network-miners" class="font-bold text-cyan-400">0</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">💎 Total GEN Mined</span>
+                        <span id="total-mined" class="font-bold text-yellow-400">0</span>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -281,6 +289,13 @@ NETWORK GROWTH:
         
         function updateBalanceUI() {
             document.getElementById('balance').innerText = balance.toFixed(2);
+            
+            // Update Global Ledger Stats
+            const minerCount = Object.keys(globalLedger).length;
+            const totalMined = Object.values(globalLedger).reduce((a, b) => a + b, 0);
+            
+            document.getElementById('network-miners').innerText = minerCount;
+            document.getElementById('total-mined').innerText = totalMined.toFixed(2);
         }
         
         loadBalance();
@@ -294,6 +309,37 @@ NETWORK GROWTH:
             bestWeights: null,
             blocksReceived: 0
         };
+        
+        // --- Global Ledger (분산 장부) ---
+        let globalLedger = {}; // {지갑주소: 잔액} - 모든 참여자의 잔액 기록
+        
+        function initGlobalLedger() {
+            const saved = localStorage.getItem('p2p_global_ledger');
+            if (saved) {
+                globalLedger = JSON.parse(saved);
+                console.log("📂 Global Ledger loaded:", Object.keys(globalLedger).length, "accounts");
+            } else {
+                globalLedger = {};
+                globalLedger[walletAddress] = balance; // 내 계정 등록
+            }
+        }
+        
+        function saveGlobalLedger() {
+            localStorage.setItem('p2p_global_ledger', JSON.stringify(globalLedger));
+        }
+        
+        function updateGlobalLedger(minerAddress, reward) {
+            globalLedger[minerAddress] = (globalLedger[minerAddress] || 0) + reward;
+            saveGlobalLedger();
+        }
+        
+        // Weights Hash 계산 (블록체인 검증용)
+        function hashWeights(weights) {
+            if (!weights || weights.length === 0) return "0000000000000000";
+            const sum = weights.map(w => w.data.reduce((a, b) => a + b, 0))
+                .reduce((a, b) => a + b, 0);
+            return Math.abs(sum).toString(16).substring(0, 16).padStart(16, '0');
+        }
         
         // ============================================
         // BLOCKCHAIN IMPLEMENTATION
@@ -370,18 +416,30 @@ NETWORK GROWTH:
             }
             
             isValidNewBlock(newBlock, previousBlock) {
+                // 검증 1: 블록 인덱스가 순차적인가?
                 if (previousBlock.index + 1 !== newBlock.index) {
-                    console.warn("Invalid index");
+                    console.warn("❌ Invalid index:", newBlock.index, "expected:", previousBlock.index + 1);
                     return false;
                 }
+                
+                // 검증 2: 이전 블록과 연결되는가?
                 if (previousBlock.hash !== newBlock.previousHash) {
-                    console.warn("Invalid previous hash");
+                    console.warn("❌ Invalid previous hash");
                     return false;
                 }
+                
+                // 검증 3: 블록 해시가 정확한가?
                 if (newBlock.calculateHash() !== newBlock.hash) {
-                    console.warn("Invalid hash");
+                    console.warn("❌ Invalid hash");
                     return false;
                 }
+                
+                // 검증 4: 실제로 지능이 향상되었는가? (Loss가 더 낮은가?)
+                if (newBlock.index > 0 && newBlock.loss >= previousBlock.loss) {
+                    console.warn("❌ Loss not improved:", newBlock.loss, ">=", previousBlock.loss);
+                    return false;
+                }
+                
                 return true;
             }
             
@@ -736,10 +794,11 @@ NETWORK GROWTH:
                     break;
                     
                 case 'request_chain':
-                    // Send full blockchain to peer
+                    // Send full blockchain + global ledger to peer
                     sendToPeer(connections[peerId], {
                         type: 'blockchain',
-                        chain: blockchain.chain
+                        chain: blockchain.chain,
+                        ledger: globalLedger
                     });
                     break;
                     
@@ -748,6 +807,17 @@ NETWORK GROWTH:
                     if (data.chain && blockchain.replaceChain(data.chain)) {
                         addLog(`🔄 Updated blockchain from ${peerId.substring(0, 8)}... (${data.chain.length} blocks)`, "success");
                         document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                        
+                        // Global Ledger도 동기화 (피어가 보낸 장부 정보)
+                        if (data.ledger) {
+                            Object.keys(data.ledger).forEach(address => {
+                                if (!globalLedger[address] || globalLedger[address] < data.ledger[address]) {
+                                    globalLedger[address] = data.ledger[address];
+                                }
+                            });
+                            saveGlobalLedger();
+                            addLog(`📊 Global ledger synchronized: ${Object.keys(globalLedger).length} accounts`, "info");
+                        }
                     }
                     break;
             }
@@ -758,15 +828,23 @@ NETWORK GROWTH:
             const latestBlock = blockchain.getLatestBlock();
             
             if (block.index === latestBlock.index + 1) {
-                // Next block in sequence
+                // Next block in sequence - VALIDATE IT!
                 if (blockchain.isValidNewBlock(block, latestBlock)) {
+                    // ✅ 검증 성공: 블록체인에 추가
                     blockchain.chain.push(block);
                     blockchain.saveChain();
+                    
+                    // 💰 채굴자에게 보상 인정 (Global Ledger 업데이트)
+                    if (block.reward && block.miner) {
+                        updateGlobalLedger(block.miner, block.reward);
+                        addLog(`💰 Reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
+                    }
+                    
+                    // UI 업데이트
                     document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                    addLog(`⛓️ Block #${block.index} verified from ${peerId.substring(0, 8)}... (Loss: ${block.loss.toFixed(4)})`, "success");
                     
-                    addLog(`⛓️ Block #${block.index} received from ${peerId.substring(0, 8)}...`, "success");
-                    
-                    // Relay to other peers (gossip)
+                    // 📡 다른 피어에게 전파 (Gossip Protocol)
                     Object.keys(connections).forEach(pid => {
                         if (pid !== peerId) {
                             sendToPeer(connections[pid], {
@@ -775,6 +853,8 @@ NETWORK GROWTH:
                             });
                         }
                     });
+                } else {
+                    addLog(`❌ Block #${block.index} rejected: Failed validation`, "error");
                 }
             } else if (block.index > latestBlock.index + 1) {
                 // Missing blocks, request full chain
@@ -830,12 +910,6 @@ NETWORK GROWTH:
                 networkState.bestLoss = receivedLoss;
                 document.getElementById('global-loss').innerText = receivedLoss.toFixed(4);
             }
-        }
-        
-        function handleNewBlock(peerId, data) {
-            networkState.blocksReceived++;
-            document.getElementById('blocks-received').innerText = networkState.blocksReceived;
-            addLog(`⛓️ Block #${data.blockNumber} from ${peerId.substring(0, 8)}...`, "info");
         }
         
         function sendMyWeights(peerId) {
@@ -1052,6 +1126,10 @@ NETWORK GROWTH:
                         
                         // Award mining reward
                         addBalance(MINING_REWARD);
+                        
+                        // Update global ledger (내 채굴 기록)
+                        updateGlobalLedger(walletAddress, MINING_REWARD);
+                        
                         addLog(`⛓️ Block #${newBlock.index} mined! 💰 +${MINING_REWARD} GEN`, "success");
                     }
                     
@@ -1305,6 +1383,7 @@ NETWORK GROWTH:
         // INITIALIZATION
         // ============================================
         
+        initGlobalLedger();
         initChart();
         initP2P();
         
