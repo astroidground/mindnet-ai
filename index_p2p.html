@@ -232,6 +232,7 @@ NETWORK GROWTH:
         const MAX_PEERS = 5; // Connect to maximum 5 peers
         const GOSSIP_INTERVAL = 5000; // Broadcast state every 5 seconds
         const TRAINING_DATA_LENGTH = 200; // Length of training text
+        const MINING_REWARD = 10; // GEN tokens per block mined
         
         // --- Wallet & Security ---
         const EC = elliptic.ec;
@@ -258,6 +259,32 @@ NETWORK GROWTH:
         
         initWallet();
         
+        // --- Balance Management ---
+        let balance = 0;
+        
+        function loadBalance() {
+            const saved = localStorage.getItem('p2p_balance');
+            if (saved) {
+                balance = parseFloat(saved);
+            } else {
+                balance = 0;
+            }
+            updateBalanceUI();
+        }
+        
+        function addBalance(amount) {
+            balance += amount;
+            localStorage.setItem('p2p_balance', balance.toString());
+            updateBalanceUI();
+            console.log(`💰 Balance updated: +${amount} GEN (Total: ${balance})`);
+        }
+        
+        function updateBalanceUI() {
+            document.getElementById('balance').innerText = balance.toFixed(2);
+        }
+        
+        loadBalance();
+        
         // --- P2P Network State ---
         let peer = null;
         let myPeerId = null;
@@ -281,12 +308,13 @@ NETWORK GROWTH:
                 this.loss = data.loss;
                 this.weightsHash = data.weightsHash;
                 this.peerId = data.peerId;
+                this.reward = data.reward || 0;
                 this.hash = this.calculateHash();
             }
             
             calculateHash() {
                 const data = this.index + this.timestamp + this.previousHash + 
-                            this.miner + this.loss + this.weightsHash;
+                            this.miner + this.loss + this.weightsHash + this.reward;
                 // Simple hash (in production, use SHA-256)
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -309,7 +337,8 @@ NETWORK GROWTH:
                     miner: "GENESIS",
                     loss: 9.9,
                     weightsHash: "0000000000000000",
-                    peerId: "SYSTEM"
+                    peerId: "SYSTEM",
+                    reward: 0
                 });
             }
             
@@ -997,12 +1026,16 @@ NETWORK GROWTH:
                         miner: walletAddress,
                         loss: loss,
                         weightsHash: weightsHash,
-                        peerId: myPeerId
+                        peerId: myPeerId,
+                        reward: MINING_REWARD
                     });
                     
                     if (newBlock) {
                         document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
-                        addLog(`⛓️ Block #${newBlock.index} mined!`, "success");
+                        
+                        // Award mining reward
+                        addBalance(MINING_REWARD);
+                        addLog(`⛓️ Block #${newBlock.index} mined! 💰 +${MINING_REWARD} GEN`, "success");
                     }
                     
                     broadcastToNetwork({
