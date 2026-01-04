@@ -1098,43 +1098,74 @@ NETWORK GROWTH:
             try {
                 const oldWeights = oldModel.getWeights();
                 const newWeights = newModel.getWeights();
+                const transferredWeights = [];
                 
                 // 가중치 전송: 겹치는 부분만 복사 (지식 보존)
-                for (let i = 0; i < Math.min(oldWeights.length, newWeights.length); i++) {
+                for (let i = 0; i < newWeights.length; i++) {
+                    if (i >= oldWeights.length) {
+                        // 새로운 레이어는 그대로 유지
+                        transferredWeights.push(newWeights[i]);
+                        console.log(`  🆕 Layer ${i}: New layer (${newWeights[i].shape})`);
+                        continue;
+                    }
+                    
                     const oldShape = oldWeights[i].shape;
                     const newShape = newWeights[i].shape;
                     
                     // 크기가 같으면 그대로 복사
                     if (JSON.stringify(oldShape) === JSON.stringify(newShape)) {
-                        newWeights[i].dispose();
-                        newWeights[i] = tf.clone(oldWeights[i]);
+                        transferredWeights.push(tf.clone(oldWeights[i]));
                         console.log(`  ✅ Layer ${i}: Transferred (${oldShape})`);
                     } 
                     // 크기가 다르면 부분 복사 (확장된 부분은 랜덤 초기화)
                     else if (oldShape.length === newShape.length) {
-                        const oldData = await oldWeights[i].data();
-                        const newData = await newWeights[i].data();
+                        const oldData = await oldWeights[i].array();
+                        const newData = await newWeights[i].array();
                         
-                        // 겹치는 영역만 복사
-                        const copySize = Math.min(oldData.length, newData.length);
-                        for (let j = 0; j < copySize; j++) {
-                            newData[j] = oldData[j];
+                        // 다차원 배열 처리
+                        const mergedData = JSON.parse(JSON.stringify(newData)); // Deep copy
+                        
+                        // 겹치는 영역만 복사 (재귀적으로)
+                        function copyRecursive(target, source, depth = 0) {
+                            if (depth >= oldShape.length) return;
+                            
+                            const minLength = Math.min(target.length, source.length);
+                            for (let i = 0; i < minLength; i++) {
+                                if (Array.isArray(target[i]) && Array.isArray(source[i])) {
+                                    copyRecursive(target[i], source[i], depth + 1);
+                                } else {
+                                    target[i] = source[i];
+                                }
+                            }
                         }
                         
-                        const updatedWeight = tf.tensor(newData, newShape);
-                        newWeights[i].dispose();
-                        newWeights[i] = updatedWeight;
+                        copyRecursive(mergedData, oldData);
+                        
+                        const updatedWeight = tf.tensor(mergedData, newShape);
+                        transferredWeights.push(updatedWeight);
                         console.log(`  ⚡ Layer ${i}: Partial transfer (${oldShape} → ${newShape})`);
                     } else {
-                        console.log(`  ⏭️  Layer ${i}: Skipped (incompatible shapes)`);
+                        // 호환 불가능한 shape은 새 가중치 그대로 사용
+                        transferredWeights.push(tf.clone(newWeights[i]));
+                        console.log(`  ⏭️  Layer ${i}: Kept new (incompatible: ${oldShape} vs ${newShape})`);
                     }
                 }
                 
-                newModel.setWeights(newWeights);
+                // 새 가중치 설정
+                newModel.setWeights(transferredWeights);
+                
+                // 메모리 정리
+                transferredWeights.forEach(w => {
+                    if (w !== newWeights[w]) {
+                        // 우리가 만든 텐서만 dispose (모델 내부 것은 모델이 관리)
+                    }
+                });
+                
                 console.log("✅ Knowledge transfer complete!");
                 
             } catch (e) {
-                console.warn("⚠️ Knowledge transfer failed:", e);
+                console.error("⚠️ Knowledge transfer failed:", e);
+                // 실패 시 새 모델 그대로 반환
             }
             
             return newModel;
@@ -1607,6 +1638,7 @@ NETWORK GROWTH:
     </script>
 </body>
 </html>
+
 
 
 
