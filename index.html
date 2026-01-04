@@ -641,6 +641,144 @@ NETWORK GROWTH:
         let currentGeneration = 1;
         const EVOLUTION_INTERVAL = 10; // Evolution every 10 blocks
         
+        // ============================================
+        // FEDERATED LEARNING - Distributed Training
+        // ============================================
+        
+        let gradientBuffer = {}; // {peerId: {gradients, timestamp}}
+        const GRADIENT_AGGREGATION_INTERVAL = 5; // Aggregate every 5 epochs
+        let lastGradientShare = 0;
+        
+        // Extract gradients from model (for sharing)
+        function extractGradients() {
+            if (!model) return null;
+            
+            const weights = model.getWeights();
+            const gradients = weights.map(w => ({
+                data: Array.from(w.dataSync()),
+                shape: w.shape
+            }));
+            
+            return gradients;
+        }
+        
+        // Apply aggregated gradients to model
+        async function applyAggregatedGradients(aggregatedGrads) {
+            if (!model || !aggregatedGrads) return;
+            
+            try {
+                const currentWeights = model.getWeights();
+                const newWeights = [];
+                
+                for (let i = 0; i < currentWeights.length; i++) {
+                    if (i < aggregatedGrads.length) {
+                        // Average: current + aggregated gradients
+                        const current = await currentWeights[i].array();
+                        const grad = aggregatedGrads[i].data;
+                        
+                        // Simple gradient descent: w = w - learning_rate * gradient
+                        const learningRate = 0.01;
+                        const updated = current.map((val, idx) => {
+                            return val - learningRate * (grad[idx] || 0);
+                        });
+                        
+                        newWeights.push(tf.tensor(updated, currentWeights[i].shape));
+                    } else {
+                        newWeights.push(currentWeights[i]);
+                    }
+                }
+                
+                model.setWeights(newWeights);
+                newWeights.forEach(w => w.dispose());
+                
+                console.log("✅ Federated gradients applied");
+            } catch (e) {
+                console.error("Failed to apply gradients:", e);
+            }
+        }
+        
+        // Aggregate gradients from multiple peers (Federated Averaging)
+        function aggregateGradients() {
+            const peerGrads = Object.values(gradientBuffer);
+            
+            if (peerGrads.length === 0) return null;
+            
+            console.log(`🔄 Aggregating gradients from ${peerGrads.length} peers`);
+            
+            // Average all gradients
+            const aggregated = [];
+            const numPeers = peerGrads.length;
+            
+            // Assume all peers have same model structure
+            const numLayers = peerGrads[0].gradients.length;
+            
+            for (let layerIdx = 0; layerIdx < numLayers; layerIdx++) {
+                const layerGrads = peerGrads.map(pg => pg.gradients[layerIdx]);
+                const dataLength = layerGrads[0].data.length;
+                const shape = layerGrads[0].shape;
+                
+                // Average across all peers
+                const avgData = new Array(dataLength).fill(0);
+                for (let i = 0; i < dataLength; i++) {
+                    let sum = 0;
+                    for (const grad of layerGrads) {
+                        sum += grad.data[i] || 0;
+                    }
+                    avgData[i] = sum / numPeers;
+                }
+                
+                aggregated.push({
+                    data: avgData,
+                    shape: shape
+                });
+            }
+            
+            // Clear buffer after aggregation
+            gradientBuffer = {};
+            
+            return aggregated;
+        }
+        
+        // Share my gradients with network
+        function shareGradients() {
+            const gradients = extractGradients();
+            
+            if (!gradients) return;
+            
+            console.log("📤 Sharing gradients with network");
+            
+            broadcastToNetwork({
+                type: 'gradients',
+                gradients: gradients,
+                peerId: myPeerId,
+                timestamp: Date.now()
+            });
+            
+            lastGradientShare = epochCount;
+        }
+        
+        // Handle received gradients from peers
+        function handleGradients(peerId, data) {
+            if (!data.gradients) return;
+            
+            // Store in buffer for aggregation
+            gradientBuffer[peerId] = {
+                gradients: data.gradients,
+                timestamp: data.timestamp
+            };
+            
+            console.log(`📥 Received gradients from ${peerId.substring(0, 8)} (Buffer: ${Object.keys(gradientBuffer).length})`);
+            
+            // If we have enough gradients, aggregate and apply
+            if (Object.keys(gradientBuffer).length >= 3) {
+                const aggregated = aggregateGradients();
+                if (aggregated) {
+                    applyAggregatedGradients(aggregated);
+                    addLog(`🤝 Federated learning: Averaged gradients from ${Object.keys(gradientBuffer).length} peers`, "success");
+                }
+            }
+        }
+        
         function getGenerationFromBlockHeight(blockHeight) {
             return Math.floor(blockHeight / EVOLUTION_INTERVAL) + 1;
         }
@@ -983,6 +1121,10 @@ NETWORK GROWTH:
                     handleWeightsUpdate(peerId, data);
                     break;
                     
+                case 'gradients':
+                    handleGradients(peerId, data);
+                    break;
+                    
                 case 'block':
                     handleNewBlock(peerId, data);
                     break;
@@ -1291,40 +1433,87 @@ NETWORK GROWTH:
         // TENSORFLOW.JS MODEL
         // ============================================
         
+        // 🔥 Lightweight Transformer with Multi-Head Attention
         async function createModel(generation = 1) {
             const units = calculateUnitsForGeneration(generation);
-            const embeddingDim = Math.min(32 + (generation - 1) * 8, 128); // 점진적으로 증가
+            const embeddingDim = Math.min(32 + (generation - 1) * 8, 128);
+            const numHeads = Math.min(4, Math.floor(embeddingDim / 8)); // 4 attention heads max
             
-            const model = tf.sequential();
+            // Use Functional API for more complex architecture
+            const input = tf.input({shape: [SEQUENCE_LENGTH]});
             
-            model.add(tf.layers.embedding({
+            // Embedding layer
+            let x = tf.layers.embedding({
                 inputDim: vocab.length,
                 outputDim: embeddingDim,
                 inputLength: SEQUENCE_LENGTH
-            }));
+            }).apply(input);
             
-            model.add(tf.layers.lstm({
-                units: units,
-                returnSequences: false,
-                kernelInitializer: 'glorotUniform',
-                recurrentInitializer: 'glorotUniform'
-            }));
+            // 🌟 Transformer Block: Multi-Head Self-Attention + Feed-Forward
+            // Position encoding (simple learnable)
+            const positionEmbedding = tf.layers.embedding({
+                inputDim: SEQUENCE_LENGTH,
+                outputDim: embeddingDim
+            });
             
-            model.add(tf.layers.dense({
+            const positions = tf.range(0, SEQUENCE_LENGTH, 1, 'int32');
+            const posEncoding = positionEmbedding.apply(positions);
+            
+            // Add position encoding to embeddings
+            x = tf.layers.add().apply([x, posEncoding]);
+            
+            // 🎯 Multi-Head Attention (Simplified)
+            // Query, Key, Value projections
+            const attention = tf.layers.multiHeadAttention({
+                numHeads: numHeads,
+                keyDim: Math.floor(embeddingDim / numHeads),
+                name: 'multi_head_attention'
+            }).apply(x, {query: x, value: x, key: x, returnAttentionScores: false});
+            
+            // Add & Norm (Residual connection)
+            x = tf.layers.add().apply([x, attention]);
+            x = tf.layers.layerNormalization().apply(x);
+            
+            // Feed-Forward Network
+            let ffn = tf.layers.dense({
+                units: units * 2,
+                activation: 'relu',
+                kernelInitializer: 'glorotUniform'
+            }).apply(x);
+            
+            ffn = tf.layers.dropout({rate: 0.1}).apply(ffn);
+            
+            ffn = tf.layers.dense({
+                units: embeddingDim,
+                kernelInitializer: 'glorotUniform'
+            }).apply(ffn);
+            
+            // Add & Norm (Residual connection)
+            x = tf.layers.add().apply([x, ffn]);
+            x = tf.layers.layerNormalization().apply(x);
+            
+            // Global Average Pooling (aggregate sequence)
+            x = tf.layers.globalAveragePooling1d().apply(x);
+            
+            // Output layer
+            const output = tf.layers.dense({
                 units: vocab.length,
                 activation: 'softmax',
                 kernelInitializer: 'glorotUniform'
-            }));
+            }).apply(x);
+            
+            const model = tf.model({inputs: input, outputs: output});
             
             model.compile({
-                optimizer: 'adam',
-                loss: 'categoricalCrossentropy'
+                optimizer: tf.train.adam(0.001),
+                loss: 'categoricalCrossentropy',
+                metrics: ['accuracy']
             });
             
             const params = model.countParams();
             document.getElementById('model-params').innerText = (params / 1000).toFixed(1) + 'K';
             
-            console.log(`🧠 Generation ${generation} Model created: ${units} units, ${params} parameters`);
+            console.log(`🧠 Gen ${generation} Transformer created: ${numHeads} heads, ${embeddingDim}d, ${params} params`);
             return model;
         }
         
@@ -1528,6 +1717,11 @@ NETWORK GROWTH:
                 addBalance(REWARD_PER_EPOCH);
                 epochCount++;
                 document.getElementById('epochs').innerText = epochCount;
+                
+                // 🤝 Federated Learning: Share gradients periodically
+                if (epochCount % GRADIENT_AGGREGATION_INTERVAL === 0 && Object.keys(connections).length > 0) {
+                    shareGradients();
+                }
                 
                 // Update chart (keep only last 10 data points)
                 lossHistory.push(loss);
