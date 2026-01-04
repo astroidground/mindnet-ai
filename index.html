@@ -128,12 +128,12 @@ NETWORK GROWTH:
             <div>
                 <h1 class="text-2xl font-bold neon-text">⚡ GENESIS AI</h1>
                 <p class="text-xs text-gray-400">Decentralized Intelligence Network</p>
-            </div>
-            <div class="text-right">
+        </div>
+        <div class="text-right">
                 <p class="text-xs text-gray-400">WALLET</p>
                 <p id="wallet-address" class="text-xs font-mono text-white">Generating...</p>
                 <p class="text-xs text-gray-500">Balance: <span id="balance" class="text-green-400">0</span> GEN</p>
-            </div>
+        </div>
         </div>
         
         <!-- Navigation Tabs -->
@@ -177,8 +177,8 @@ NETWORK GROWTH:
                         <button id="inference-btn" class="px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded transition-all shadow-[0_0_15px_rgba(0,255,136,0.5)]">
                             ASK
                         </button>
-                    </div>
-                    
+            </div>
+            
                     <div id="inference-output" class="mt-4 p-4 bg-black bg-opacity-70 text-green-300 text-sm min-h-20 rounded border border-green-900 hidden"></div>
                 </div>
                 
@@ -191,9 +191,9 @@ NETWORK GROWTH:
                     <div class="bg-black bg-opacity-50 border border-green-800 rounded p-4">
                         <p class="text-xs text-gray-400">Your Balance</p>
                         <p class="text-lg font-bold text-green-400"><span id="chat-balance">0</span> GEN</p>
-                    </div>
-                </div>
-                
+            </div>
+        </div>
+
                 <!-- Info Banner -->
                 <div class="bg-black bg-opacity-30 border border-green-800 rounded p-4 text-center text-xs text-gray-400">
                     <p>✨ This AI runs on a decentralized network. No central server. No censorship.</p>
@@ -261,6 +261,21 @@ NETWORK GROWTH:
                     <div id="peer-list" class="space-y-1 max-h-32 overflow-y-auto terminal-scroll">
                         <p class="text-xs text-gray-500">No peers connected</p>
                         <p class="text-xs text-cyan-400 mt-2">💡 Tip: Open another tab - Auto-connects!</p>
+                </div>
+            </div>
+            
+            <!-- Storage Management -->
+            <div class="neon-border p-4 bg-black bg-opacity-50">
+                <h2 class="text-lg neon-text mb-3">💾 STORAGE</h2>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Used Space</span>
+                        <span id="storage-used" class="font-bold text-yellow-400">-</span>
+                    </div>
+                    <button id="cleanup-btn" class="w-full py-2 bg-red-900 hover:bg-red-700 text-white text-xs font-bold border border-red-500 transition-colors">
+                        🧹 CLEAR CACHE
+                    </button>
+                    <p class="text-gray-500 text-xs">Clears blockchain cache (will re-sync from network)</p>
                 </div>
             </div>
         </div>
@@ -345,8 +360,8 @@ NETWORK GROWTH:
                 <h2 class="text-lg neon-text mb-2">🍽️ DATA SOURCES (Autonomous Foraging)</h2>
                 <div id="data-sources" class="text-xs space-y-1">
                     <div class="text-gray-500">Initializing...</div>
+                    </div>
                 </div>
-            </div>
             
             <!-- Collaboration Status -->
             <div class="neon-border p-4 bg-black bg-opacity-50">
@@ -355,11 +370,11 @@ NETWORK GROWTH:
                     <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
                         <span class="text-xs text-gray-400">Weights Received</span>
                         <span id="weights-received" class="text-sm font-bold text-blue-400">0</span>
-                    </div>
+            </div>
                     <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
                         <span class="text-xs text-gray-400">Gradients Shared</span>
                         <span id="gradients-shared" class="text-sm font-bold text-green-400">0</span>
-                    </div>
+        </div>
                     <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
                         <span class="text-xs text-gray-400">Blocks Contributed</span>
                         <span id="blocks-contributed" class="text-sm font-bold text-yellow-400">0</span>
@@ -788,21 +803,33 @@ NETWORK GROWTH:
                 tabs[myPeerId] = {
                     peerId: myPeerId,
                     timestamp: Date.now(),
-                    sessionId: Date.now() + Math.random() // Unique session
+                    sessionId: Date.now() + Math.random()
                 };
                 
                 // Clean old tabs (older than 30 seconds)
                 const now = Date.now();
                 Object.keys(tabs).forEach(id => {
                     if (now - tabs[id].timestamp > 30000) {
+                        console.log(`🧹 Removing stale tab: ${id.substring(0, 8)}`);
                         delete tabs[id];
                     }
                 });
                 
                 localStorage.setItem('genesis_active_tabs', JSON.stringify(tabs));
-                console.log(`📝 Registered in localStorage: ${Object.keys(tabs).length} tab(s)`);
+                
+                const otherTabs = Object.keys(tabs).filter(id => id !== myPeerId);
+                console.log(`📝 Registered in localStorage: ${Object.keys(tabs).length} tab(s) total, ${otherTabs.length} other(s)`);
+                
+                // Show in UI
+                if (otherTabs.length === 0) {
+                    console.log(`💡 No other tabs found. Open another tab at: ${window.location.origin}`);
+                }
             } catch(e) {
                 console.error("Failed to register tab:", e);
+                if (e.name === 'QuotaExceededError') {
+                    console.log("🧹 localStorage full, clearing active tabs...");
+                    localStorage.removeItem('genesis_active_tabs');
+                }
             }
         }
         
@@ -2261,7 +2288,7 @@ NETWORK GROWTH:
             console.log(`🧠 Gen ${generation} Model: BiLSTM + Attention, ${embeddingDim}d embed, ${params} params`);
             return model;
         }
-        
+
         // 🧬 Knowledge Transfer: Transfer knowledge from previous generation to new
         async function upgradeBrain(oldModel, newGeneration) {
             console.log(`🧬 Evolving to Generation ${newGeneration}...`);
@@ -2817,17 +2844,73 @@ NETWORK GROWTH:
         
         function saveWeightsToStorage(weights, loss) {
             try {
-                localStorage.setItem('p2p_best_weights', JSON.stringify({
+                const data = JSON.stringify({
                     weights: weights,
                     loss: loss,
                     timestamp: Date.now(),
-                    modelVersion: MODEL_VERSION, // Save model version for compatibility
-                    generation: currentGeneration // Save generation for verification
-                }));
-                console.log(`💾 Weights saved (Version: ${MODEL_VERSION}, Gen: ${currentGeneration})`);
+                    modelVersion: MODEL_VERSION,
+                    generation: currentGeneration
+                });
+                
+                // Check size
+                const sizeKB = (data.length / 1024).toFixed(2);
+                console.log(`💾 Attempting to save weights: ${sizeKB} KB`);
+                
+                localStorage.setItem('p2p_best_weights', data);
+                console.log(`✅ Weights saved successfully`);
             } catch(e) {
-                console.error("Failed to save weights:", e);
+                if (e.name === 'QuotaExceededError') {
+                    console.error("❌ localStorage full! Attempting cleanup...");
+                    
+                    // Clean up old/unnecessary data
+                    cleanupLocalStorage();
+                    
+                    // Try again after cleanup
+                    try {
+                        localStorage.setItem('p2p_best_weights', JSON.stringify({
+                            weights: weights,
+                            loss: loss,
+                            timestamp: Date.now(),
+                            modelVersion: MODEL_VERSION,
+                            generation: currentGeneration
+                        }));
+                        console.log("✅ Weights saved after cleanup");
+                        addLog("⚠️ localStorage was full, cleaned up old data", "warn");
+                    } catch(e2) {
+                        console.error("❌ Still failed after cleanup:", e2);
+                        addLog("❌ Cannot save weights: Storage full!", "error");
+                    }
+            } else {
+                    console.error("Failed to save weights:", e);
+                }
             }
+        }
+        
+        function cleanupLocalStorage() {
+            console.log("🧹 Cleaning up localStorage...");
+            
+            // Remove old/unnecessary items
+            const itemsToCheck = [
+                'p2p_blockchain', // Can be re-synced from network
+                'genesis_active_tabs', // Can be regenerated
+                'p2p_collab_stats' // Not critical
+            ];
+            
+            itemsToCheck.forEach(key => {
+                const item = localStorage.getItem(key);
+                if (item) {
+                    const sizeKB = (item.length / 1024).toFixed(2);
+                    console.log(`  - ${key}: ${sizeKB} KB`);
+                }
+            });
+            
+            // Remove blockchain (can re-sync from peers)
+            localStorage.removeItem('p2p_blockchain');
+            console.log("  ✅ Removed blockchain (will re-sync from network)");
+            
+            // Clear active tabs list
+            localStorage.removeItem('genesis_active_tabs');
+            console.log("  ✅ Cleared active tabs list");
         }
         
         function loadWeightsFromStorage() {
@@ -3138,6 +3221,48 @@ NETWORK GROWTH:
         });
         
         // Manual connect button
+        // Calculate localStorage usage
+        function updateStorageUsage() {
+            try {
+                let totalSize = 0;
+                for (let key in localStorage) {
+                    if (localStorage.hasOwnProperty(key)) {
+                        totalSize += localStorage[key].length + key.length;
+                    }
+                }
+                
+                const sizeKB = (totalSize / 1024).toFixed(2);
+                const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
+                
+                const displaySize = totalSize > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+                document.getElementById('storage-used').innerText = displaySize;
+                
+                // Warn if approaching limit (> 4MB)
+                if (totalSize > 4 * 1024 * 1024) {
+                    document.getElementById('storage-used').classList.add('text-red-400');
+                    document.getElementById('storage-used').classList.remove('text-yellow-400');
+                } else {
+                    document.getElementById('storage-used').classList.add('text-yellow-400');
+                    document.getElementById('storage-used').classList.remove('text-red-400');
+                }
+            } catch(e) {
+                console.error("Failed to calculate storage:", e);
+            }
+        }
+        
+        // Cleanup button
+        document.getElementById('cleanup-btn').addEventListener('click', () => {
+            if (!confirm('Clear cache? This will:\n• Remove blockchain (will re-sync from network)\n• Keep your wallet and balance\n• Keep best weights')) {
+                return;
+            }
+            
+            console.log("🧹 Manual cleanup requested");
+            cleanupLocalStorage();
+            updateStorageUsage();
+            addLog("✅ Cache cleared! Blockchain will re-sync from network.", "success");
+        });
+        
+        // Manual connect button
         document.getElementById('manual-connect-btn').addEventListener('click', () => {
             const peerIdInput = document.getElementById('manual-peer-id');
             const peerId = peerIdInput.value.trim();
@@ -3161,6 +3286,11 @@ NETWORK GROWTH:
             connectToPeer(peerId);
             peerIdInput.value = '';
         });
+        
+        // Update storage usage periodically
+        setInterval(() => {
+            updateStorageUsage();
+        }, 10000); // Every 10 seconds
         
         document.getElementById('inference-btn').addEventListener('click', async () => {
             const input = document.getElementById('inference-input');
@@ -3191,7 +3321,8 @@ NETWORK GROWTH:
         initGlobalLedger();        // 3. Initialize global ledger
         initChart();               // 4. Initialize chart
         updateDataSourcesUI();     // 5. Initialize data sources display
-        initIPFS();                // 6. Initialize IPFS (Decentralized storage)
+        updateStorageUsage();      // 6. Check storage usage
+        initIPFS();                // 7. Initialize IPFS (Decentralized storage)
         initP2P();                 // 7. Initialize P2P network
         
         // Periodic gossip
