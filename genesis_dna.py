@@ -268,10 +268,27 @@ class MindHashNode:
         self.current_job = None
         self.last_job_time = 0
         
+        # [업데이트] 활성 노드 추적
+        self.active_nodes = {}  # {address: last_seen_timestamp}
+        self.node_timeout = 30  # 30초 동안 활동 없으면 offline
+        
         self.setup_routes()
         
         print(f"🌌 MindHash Evolution Node (v{VERSION}) Initialized")
         print(f"🔑 Server Wallet: {self.wallet.address}")
+
+    def update_node_activity(self, address: str):
+        """노드의 마지막 활동 시간 기록"""
+        self.active_nodes[address] = time.time()
+    
+    def get_active_node_count(self) -> int:
+        """활성 노드 수 반환 (타임아웃 제외)"""
+        current_time = time.time()
+        active = [addr for addr, last_seen in self.active_nodes.items() 
+                  if current_time - last_seen < self.node_timeout]
+        # 비활성 노드 정리
+        self.active_nodes = {addr: ts for addr, ts in self.active_nodes.items() if addr in active}
+        return len(active)
 
     def setup_routes(self):
         
@@ -288,10 +305,25 @@ class MindHashNode:
         @self.app.route('/balance/<address>', methods=['GET'])
         def balance(address):
             return jsonify({"address": address, "balance": self.ledger.get_balance(address)})
+        
+        @self.app.route('/stats', methods=['GET'])
+        def stats():
+            """[업데이트] 네트워크 통계 (활성 노드 수 등)"""
+            last_block = self.ledger.get_last_block()
+            return jsonify({
+                "active_nodes": self.get_active_node_count(),
+                "total_blocks": last_block['idx'] if last_block else 0,
+                "version": VERSION
+            })
 
         @self.app.route('/mining/job', methods=['GET'])
         def get_job():
             """[업데이트] 유저에게 현재의 '뇌 상태(Weights)'를 함께 전달하여 이어서 학습하게 함"""
+            # [업데이트] 노드 활동 기록
+            address = request.args.get('address')
+            if address:
+                self.update_node_activity(address)
+            
             if not self.current_job or time.time() - self.last_job_time > 30:
                 last_block = self.ledger.get_last_block()
                 idx = last_block['idx'] if last_block else 0
@@ -314,6 +346,10 @@ class MindHashNode:
             """[업데이트] 보안 검증 강화 및 가중치 저장"""
             try:
                 data = request.json
+                
+                # [업데이트] 노드 활동 기록
+                if 'address' in data:
+                    self.update_node_activity(data['address'])
                 
                 # Construct verification message
                 msg = f"JOB:{data['job_id']}:LOSS:{float(data['loss']):.4f}"

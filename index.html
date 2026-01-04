@@ -140,6 +140,10 @@
             <!-- Network Map -->
             <div class="neon-border p-4 bg-black bg-opacity-50 flex-grow">
                 <h2 class="text-lg neon-text mb-4">P2P NETWORK</h2>
+                <div class="mb-4 p-2 bg-gray-900 bg-opacity-30 text-center">
+                    <p class="text-xs text-gray-400">Active Nodes</p>
+                    <p class="text-3xl font-bold neon-text" id="active-nodes">0</p>
+                </div>
                 <div class="space-y-2 text-xs">
                     <div class="flex items-center gap-2">
                         <div class="w-2 h-2 rounded-full bg-green-500"></div>
@@ -450,8 +454,8 @@
             if (!isMining) return;
             
             try {
-                // 1. Fetch Job from Server (Real PoT)
-                const jobRes = await fetch(`${API_URL}/mining/job`);
+                // 1. Fetch Job from Server (Real PoT) - Send address for tracking
+                const jobRes = await fetch(`${API_URL}/mining/job?address=${walletAddress}`);
                 if (!jobRes.ok) throw new Error("Server offline");
                 const job = await jobRes.json();
                 
@@ -480,6 +484,8 @@
                 // 1. Extract ALL weights (Full Brain Snapshot)
                 const allWeights = model.getWeights();
                 const weightArrays = allWeights.map(w => Array.from(w.dataSync()));
+                // Dispose weight tensors after extracting data to prevent memory leak
+                allWeights.forEach(w => w.dispose());
                 
                 // 2. Create Proof: Sign(Loss + JobID)
                 const msg = `JOB:${job.job_id}:LOSS:${loss.toFixed(4)}`;
@@ -656,6 +662,23 @@
                 feed.lastChild.remove();
             }
         }
+
+        // --- Network Stats Update (Real-time Active Nodes) ---
+        async function updateNetworkStats() {
+            try {
+                const res = await fetch(`${API_URL}/stats`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('active-nodes').innerText = data.active_nodes;
+                }
+            } catch (e) {
+                console.warn("Failed to fetch network stats:", e);
+            }
+        }
+
+        // Update stats every 10 seconds
+        setInterval(updateNetworkStats, 10000);
+        updateNetworkStats(); // Initial call
 
         // --- 5. Init ---
         document.getElementById('mine-btn').addEventListener('click', async () => {
