@@ -249,11 +249,11 @@ NETWORK GROWTH:
         const GOSSIP_INTERVAL = 5000; // Broadcast state every 5 seconds
         const TRAINING_DATA_LENGTH = 200; // Length of training text
         
-        // --- 🎯 개조된 삼중 보상 시스템 ---
-        const REWARD_PER_EPOCH = 0.01;      // 공부 1번당 소액 보상 (PoW - 연산력 기여)
-        const BLOCK_WIN_REWARD = 5.0;       // 블록 생성 성공 시 보너스 (PoW - 성과 보상)
-        const VALIDATION_REWARD = 0.1;      // 블록 검증 성공 시 보상 (PoV - 검증자 보상)
-        const VALIDATION_THRESHOLD = 0.05;  // 검증 오차 허용 범위 (수치 조작 방지)
+        // --- 🎯 Triple Reward System ---
+        const REWARD_PER_EPOCH = 0.01;      // Per-epoch reward (PoW - Computation contribution)
+        const BLOCK_WIN_REWARD = 5.0;       // Block creation bonus (PoW - Performance reward)
+        const VALIDATION_REWARD = 0.1;      // Block validation reward (PoV - Validator reward)
+        const VALIDATION_THRESHOLD = 0.05;  // Validation error tolerance (Anti-fraud)
         
         // --- Wallet & Security ---
         const EC = elliptic.ec;
@@ -303,7 +303,7 @@ NETWORK GROWTH:
         function updateBalanceUI() {
             document.getElementById('balance').innerText = balance.toFixed(2);
             
-            // Update Global Ledger Stats (안전하게 처리)
+            // Update Global Ledger Stats (safe handling)
             if (typeof globalLedger !== 'undefined' && globalLedger) {
                 const minerCount = Object.keys(globalLedger).length;
                 const totalMined = Object.values(globalLedger).reduce((a, b) => a + b, 0);
@@ -326,8 +326,8 @@ NETWORK GROWTH:
             blocksReceived: 0
         };
         
-        // --- Global Ledger (분산 장부) ---
-        let globalLedger = {}; // {지갑주소: 잔액} - 모든 참여자의 잔액 기록
+        // --- Global Ledger (Distributed Ledger) ---
+        let globalLedger = {}; // {walletAddress: balance} - Balance records of all participants
         
         function initGlobalLedger() {
             const saved = localStorage.getItem('p2p_global_ledger');
@@ -336,7 +336,7 @@ NETWORK GROWTH:
                 console.log("📂 Global Ledger loaded:", Object.keys(globalLedger).length, "accounts");
             } else {
                 globalLedger = {};
-                globalLedger[walletAddress] = balance; // 내 계정 등록
+                globalLedger[walletAddress] = balance; // Register my account
             }
         }
         
@@ -349,7 +349,7 @@ NETWORK GROWTH:
             saveGlobalLedger();
         }
         
-        // Weights Hash 계산 (블록체인 검증용)
+        // Calculate Weights Hash (for blockchain verification)
         function hashWeights(weights) {
             if (!weights || weights.length === 0) return "0000000000000000";
             const sum = weights.map(w => w.data.reduce((a, b) => a + b, 0))
@@ -372,9 +372,9 @@ NETWORK GROWTH:
                 this.peerId = data.peerId;
                 this.reward = data.reward || 0;
                 
-                // 🔐 검증용 데이터 포함 (PoV - Proof of Validation)
-                this.weights = data.weights || null;         // 전체 가중치 (검증 가능)
-                this.trainingData = data.trainingData || ""; // 학습 데이터 증거
+                // 🔐 Include verification data (PoV - Proof of Validation)
+                this.weights = data.weights || null;         // Full weights (verifiable)
+                this.trainingData = data.trainingData || ""; // Training data evidence
                 
                 this.hash = this.calculateHash();
             }
@@ -439,25 +439,25 @@ NETWORK GROWTH:
             }
             
             isValidNewBlock(newBlock, previousBlock) {
-                // 검증 1: 블록 인덱스가 순차적인가?
+                // Validation 1: Is block index sequential?
                 if (previousBlock.index + 1 !== newBlock.index) {
                     console.warn("❌ Invalid index:", newBlock.index, "expected:", previousBlock.index + 1);
                     return false;
                 }
                 
-                // 검증 2: 이전 블록과 연결되는가?
+                // Validation 2: Is it connected to previous block?
                 if (previousBlock.hash !== newBlock.previousHash) {
                     console.warn("❌ Invalid previous hash");
                     return false;
                 }
                 
-                // 검증 3: 블록 해시가 정확한가?
+                // Validation 3: Is block hash accurate?
                 if (newBlock.calculateHash() !== newBlock.hash) {
                     console.warn("❌ Invalid hash");
                     return false;
                 }
                 
-                // 검증 4: 실제로 지능이 향상되었는가? (Loss가 더 낮은가?)
+                // Validation 4: Is intelligence actually improved? (Is Loss lower?)
                 if (newBlock.index > 0 && newBlock.loss >= previousBlock.loss) {
                     console.warn("❌ Loss not improved:", newBlock.loss, ">=", previousBlock.loss);
                     return false;
@@ -547,7 +547,7 @@ NETWORK GROWTH:
         
         // --- Evolution System ---
         let currentGeneration = 1;
-        const EVOLUTION_INTERVAL = 10; // 블록 10개마다 진화
+        const EVOLUTION_INTERVAL = 10; // Evolution every 10 blocks
         
         function getGenerationFromBlockHeight(blockHeight) {
             return Math.floor(blockHeight / EVOLUTION_INTERVAL) + 1;
@@ -859,17 +859,17 @@ NETWORK GROWTH:
         }
         
         // ============================================
-        // PROOF OF VALIDATION (PoV) - 검증 시스템
+        // PROOF OF VALIDATION (PoV) - Verification System
         // ============================================
         
         async function verifyLoss(receivedWeights, trainingData, reportedLoss) {
             try {
                 console.log("🧐 Verifying block: Reported Loss =", reportedLoss);
                 
-                // 1. 임시 검증 모델 생성
+                // 1. Create temporary verification model
                 const tempModel = await createModel();
                 
-                // 2. 상대방이 보낸 가중치를 임시 모델에 적용
+                // 2. Apply received weights to temporary model
                 const tensors = receivedWeights.map(w => tf.tensor(w.data, w.shape));
                 tempModel.setWeights(tensors);
                 
@@ -894,7 +894,7 @@ NETWORK GROWTH:
                 tensors.forEach(t => t.dispose());
                 tempModel.dispose();
                 
-                // 5. 검증: 보고된 Loss와 실제 계산된 Loss의 차이가 허용 범위 내인가?
+                // 5. Verification: Is the difference between reported and calculated Loss within tolerance?
                 const diff = Math.abs(calculatedLoss - reportedLoss);
                 console.log(`📊 Calculated Loss: ${calculatedLoss.toFixed(4)}, Diff: ${diff.toFixed(4)}`);
                 
@@ -918,13 +918,13 @@ NETWORK GROWTH:
             if (block.index === latestBlock.index + 1) {
                 addLog(`🧐 Verifying block #${block.index} from ${peerId.substring(0, 8)}...`, "info");
                 
-                // [Step 1] 기본 블록체인 검증 (구조적 무결성)
+                // [Step 1] Basic blockchain validation (structural integrity)
                 if (!blockchain.isValidNewBlock(block, latestBlock)) {
                     addLog(`❌ Block #${block.index} rejected: Invalid structure`, "error");
                     return;
                 }
                 
-                // [Step 2] PoV 검증 (수학적 정확성) - 상대방이 거짓말하는지 확인
+                // [Step 2] PoV validation (mathematical accuracy) - Check if peer is lying
                 if (block.weights && block.trainingData) {
                     const isLossValid = await verifyLoss(block.weights, block.trainingData, block.loss);
                     
@@ -936,19 +936,19 @@ NETWORK GROWTH:
                     
                     addLog(`✅ PoV passed: Loss is mathematically correct`, "success");
                     
-                    // 🎁 검증자 보상 지급 (검증 노동에 대한 보상)
+                    // 🎁 Award validator reward (reward for verification work)
                     addBalance(VALIDATION_REWARD);
                     updateGlobalLedger(walletAddress, VALIDATION_REWARD);
-                    addLog(`🔍 Validation reward: +${VALIDATION_REWARD} GEN (검증 완료!)`, "success");
+                    addLog(`🔍 Validation reward: +${VALIDATION_REWARD} GEN (Verified!)`, "success");
                 } else {
                     console.warn("⚠️ Block has no verification data (legacy block?)");
                 }
                 
-                // [Step 3] 모든 검증 통과 → 블록체인에 추가
+                // [Step 3] All validations passed → Add to blockchain
                 blockchain.chain.push(block);
                 blockchain.saveChain();
                 
-                // 💰 채굴자에게 보상 인정 (Global Ledger 업데이트)
+                // 💰 Award miner reward (Update Global Ledger)
                 if (block.reward && block.miner) {
                     updateGlobalLedger(block.miner, block.reward);
                     addLog(`💰 Miner reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
@@ -1084,7 +1084,7 @@ NETWORK GROWTH:
             return model;
         }
         
-        // 🧬 Knowledge Transfer: 이전 세대의 지식을 새 세대로 전승
+        // 🧬 Knowledge Transfer: Transfer knowledge from previous generation to new
         async function upgradeBrain(oldModel, newGeneration) {
             console.log(`🧬 Evolving to Generation ${newGeneration}...`);
             
@@ -1100,7 +1100,7 @@ NETWORK GROWTH:
                 const newWeights = newModel.getWeights();
                 const transferredWeights = [];
                 
-                // 가중치 전송: 겹치는 부분만 복사 (지식 보존)
+                // Weight transfer: Copy only overlapping parts (preserve knowledge)
                 for (let i = 0; i < newWeights.length; i++) {
                     if (i >= oldWeights.length) {
                         // 새로운 레이어는 그대로 유지
@@ -1145,7 +1145,7 @@ NETWORK GROWTH:
                         transferredWeights.push(updatedWeight);
                         console.log(`  ⚡ Layer ${i}: Partial transfer (${oldShape} → ${newShape})`);
                     } else {
-                        // 호환 불가능한 shape은 새 가중치 그대로 사용
+                        // For incompatible shapes, use new weights as is
                         transferredWeights.push(tf.clone(newWeights[i]));
                         console.log(`  ⏭️  Layer ${i}: Kept new (incompatible: ${oldShape} vs ${newShape})`);
                     }
@@ -1280,7 +1280,7 @@ NETWORK GROWTH:
                 xs.dispose();
                 ys.dispose();
                 
-                // 📊 [시스템 1] 기여 보상: 공부한 만큼 일단 지급 (연산력 보상)
+                // 📊 [System 1] Contribution reward: Pay for computation work (Computing power reward)
                 addBalance(REWARD_PER_EPOCH);
                 epochCount++;
                 document.getElementById('epochs').innerText = epochCount;
@@ -1290,7 +1290,7 @@ NETWORK GROWTH:
                 if (lossHistory.length > 10) lossHistory.shift();
                 updateChart();
                 
-                // 🏆 [시스템 2] 성과 보상: 지능 향상 시 블록 생성 및 보너스
+                // 🏆 [System 2] Performance reward: Create block and get bonus when intelligence improves
                 if (loss < localBestLoss) {
                     localBestLoss = loss;
                     document.getElementById('local-loss').innerText = loss.toFixed(4);
@@ -1312,9 +1312,9 @@ NETWORK GROWTH:
                         loss: loss,
                         weightsHash: weightsHash,
                         peerId: myPeerId,
-                        weights: weights,              // ✅ 전체 가중치 포함 (검증용)
-                        trainingData: trainingText,    // ✅ 학습 데이터 증거 포함
-                        reward: BLOCK_WIN_REWARD       // 🎁 성과 보상 (5.0 GEN)
+                        weights: weights,              // ✅ Include full weights (for verification)
+                        trainingData: trainingText,    // ✅ Include training data evidence
+                        reward: BLOCK_WIN_REWARD       // 🎁 Performance reward (5.0 GEN)
                     });
                     
                     if (newBlock) {
@@ -1324,7 +1324,7 @@ NETWORK GROWTH:
                         addBalance(BLOCK_WIN_REWARD);
                         updateGlobalLedger(walletAddress, BLOCK_WIN_REWARD);
                         
-                        addLog(`⛏️ Block #${newBlock.index} mined! 지능 향상 보너스 💰 +${BLOCK_WIN_REWARD} GEN`, "success");
+                        addLog(`⛏️ Block #${newBlock.index} mined! Intelligence boost bonus 💰 +${BLOCK_WIN_REWARD} GEN`, "success");
                     }
                     
                     broadcastToNetwork({
@@ -1344,7 +1344,7 @@ NETWORK GROWTH:
                     }
                 }
                 
-                // 🧬 Check for Evolution (매 블록 생성 후)
+                // 🧬 Check for Evolution (after each block creation)
                 const blockHeight = blockchain.getBlockchainHeight();
                 const targetGeneration = getGenerationFromBlockHeight(blockHeight);
                 
@@ -1526,7 +1526,7 @@ NETWORK GROWTH:
             if (!isMining) {
                 // Start mining
                 if (!model) {
-                    // 🧬 현재 블록체인 높이 기반으로 세대 결정
+                    // 🧬 Determine generation based on current blockchain height
                     const blockHeight = blockchain.getBlockchainHeight();
                     currentGeneration = getGenerationFromBlockHeight(blockHeight);
                     
