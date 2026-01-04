@@ -242,11 +242,9 @@
         document.getElementById('wallet-address').innerText = walletAddress;
         
         // --- DEPLOYMENT CONFIG ---
-        // Automatically switch between localhost and production server
-        const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:5001' 
-            : 'https://mindnet-ai.onrender.com';
-
+        // Forced to Production URL for deployment stability
+        const API_URL = 'https://mindnet-ai.onrender.com';
+        
         console.log(`🔌 Connected to Genesis Node: ${API_URL}`);
 
         // Sync Balance Loop
@@ -406,9 +404,20 @@
             const xs = [];
             const ys = [];
             
+            // Safety Check: Ensure text is valid string
+            if (!text || typeof text !== 'string') {
+                console.warn("Invalid training data received:", text);
+                return { xs: null, ys: null };
+            }
+
             // Clean text
             text = text.toLowerCase().replace(/[^a-z .]/g, '');
             
+            // Safety Check: Ensure enough data for sequence
+            if (text.length <= SEQUENCE_LENGTH) {
+                return { xs: null, ys: null };
+            }
+
             for (let i = 0; i < text.length - SEQUENCE_LENGTH; i++) {
                 const seq = text.slice(i, i + SEQUENCE_LENGTH);
                 const target = text[i + SEQUENCE_LENGTH];
@@ -420,10 +429,21 @@
                 ys.push(y);
             }
             
-            return {
-                xs: tf.tensor2d(xs),
-                ys: tf.tensor2d(ys)
-            };
+            // Explicitly verify array structure before tensor creation
+            if (xs.length === 0) return { xs: null, ys: null };
+
+            try {
+                // Correctly creating 2D tensors
+                // xs is array of arrays [ [1,2,...], [3,4,...] ] -> already 2D compatible
+                // ys is array of arrays [ [0,1,0...], ... ] -> already 2D compatible
+                return {
+                    xs: tf.tensor2d(xs, [xs.length, SEQUENCE_LENGTH]),
+                    ys: tf.tensor2d(ys, [ys.length, vocab.length])
+                };
+            } catch (e) {
+                console.error("Tensor creation failed:", e);
+                return { xs: null, ys: null };
+            }
         }
 
         async function trainStep() {
@@ -437,10 +457,11 @@
                 
                 // 2. Prepare Data
                 const { xs, ys } = processData(job.data);
-                if (xs.shape[0] === 0) {
-                     // Not enough data, retry
-                     xs.dispose(); ys.dispose();
-                     requestAnimationFrame(trainStep);
+                
+                // Handle invalid data gracefully
+                if (!xs || !ys) {
+                     // Not enough data, just retry after short delay
+                     setTimeout(trainStep, 1000);
                      return;
                 }
 
@@ -456,19 +477,15 @@
                 const loss = history.history.loss[0];
                 
                 // --- Gap Analysis Fix #2: Real Weight Submission ---
-                // 1. Extract weights
-                const weights = model.getWeights();
-                // We pick the first kernel (usually the most important) to sign/send to save bandwidth
-                // In full production, we'd iterate and serialize all.
-                const firstLayerWeights = weights[0].dataSync(); 
-                const weightSnapshot = Array.from(firstLayerWeights.slice(0, 10)); // Just sample for proof
+                // 1. Extract ALL weights (Full Brain Snapshot)
+                const allWeights = model.getWeights();
+                const weightArrays = allWeights.map(w => Array.from(w.dataSync()));
                 
-                // 2. Create Proof: Sign(Loss + JobID + WeightsHash)
-                const weightsHash = CryptoJS.SHA256(JSON.stringify(weightSnapshot)).toString();
-                const msg = `JOB:${job.job_id}:LOSS:${loss.toFixed(4)}:WHASH:${weightsHash}`;
+                // 2. Create Proof: Sign(Loss + JobID)
+                const msg = `JOB:${job.job_id}:LOSS:${loss.toFixed(4)}`;
                 const signature = signMessage(msg); // Returns {r,s,msg}
                 
-                // 3. Submit Work
+                // 3. Submit Work with FULL Weights
                 const submitRes = await fetch(`${API_URL}/mining/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -477,8 +494,9 @@
                         address: walletAddress,
                         signature: signature,
                         job_id: job.job_id,
-                        weights_sample: weightSnapshot, // Send sample for server verify
-                        public_key: publicKey // Send public key to register/verify
+                        weights: weightArrays, // Full brain state
+                        generation: job.generation,
+                        public_key: publicKey // For verification
                     })
                 });
                 
