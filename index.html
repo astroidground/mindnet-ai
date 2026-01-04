@@ -113,8 +113,12 @@
                         <span class="font-bold">12,480</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-400">Epochs</span>
+                        <span class="text-gray-400">Local Epochs</span>
                         <span id="epochs" class="font-bold">0</span>
+                    </div>
+                    <div class="flex justify-between text-green-500">
+                        <span class="text-gray-400">⛓️ Blockchain</span>
+                        <span id="blockchain-height" class="font-bold">0</span>
                     </div>
                     <div class="flex justify-between text-yellow-500">
                         <span>Brain Generation</span>
@@ -541,11 +545,24 @@
                      // But for visual feedback we can increment locally too
                      secureUpdateBalance(result.reward);
 
+                     // Update blockchain height if provided
+                     if (result.block_height !== undefined) {
+                         document.getElementById('blockchain-height').innerText = result.block_height;
+                     }
+                     
+                     // Update generation if provided
+                     if (result.generation && result.generation !== currentGeneration) {
+                         currentGeneration = result.generation;
+                         const suffix = currentGeneration === 1 ? 'st' : currentGeneration === 2 ? 'nd' : currentGeneration === 3 ? 'rd' : 'th';
+                         document.getElementById('brain-gen').innerText = `${currentGeneration}${suffix} Gen`;
+                         console.log(`🎉 EVOLUTION! Generation upgraded to ${currentGeneration}!`);
+                     }
+
                      // --- Reward Notification ---
                      const feed = document.getElementById('babble-feed');
                      const rewardP = document.createElement('p');
                      rewardP.className = "text-yellow-400 font-bold border-l-4 border-yellow-500 pl-2 my-1";
-                     rewardP.innerHTML = `💰 [REWARD] Block Mined! <span class="text-white">+${result.reward} GEN</span>`;
+                     rewardP.innerHTML = `💰 [REWARD] Block #${result.block_height || '?'} Mined! <span class="text-white">+${result.reward} GEN</span>`;
                      feed.prepend(rewardP);
                 }
                 
@@ -696,6 +713,9 @@
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('active-nodes').innerText = data.active_nodes;
+                    
+                    // Update blockchain height
+                    document.getElementById('blockchain-height').innerText = data.total_blocks || 0;
                     
                     // [FIX] Update generation from server
                     if (data.generation && data.generation !== currentGeneration) {

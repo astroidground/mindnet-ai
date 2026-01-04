@@ -24,8 +24,10 @@ except ImportError:
     exit(1)
 
 # --- Configuration ---
-DB_FILE = "genesis_ledger.db"
-KEY_FILE = "genesis_wallet.pem"
+# Render에서 영속적 디렉토리 사용 (재시작해도 데이터 유지)
+DATA_DIR = os.getenv('DATA_DIR', '.')  # Render에서는 /opt/render/project/src
+DB_FILE = os.path.join(DATA_DIR, "genesis_ledger.db")
+KEY_FILE = os.path.join(DATA_DIR, "genesis_wallet.pem")
 VERSION = "0.1.1-Evolution"
 EVOLUTION_INTERVAL = 100 # 100블록마다 뇌 구조 진화
 
@@ -274,8 +276,15 @@ class MindHashNode:
         
         self.setup_routes()
         
+        # 서버 시작 시 블록체인 상태 출력
+        last_block = self.ledger.get_last_block()
+        block_height = last_block['idx'] if last_block else 0
+        generation = 1 + (block_height // EVOLUTION_INTERVAL)
+        
         print(f"🌌 MindHash Evolution Node (v{VERSION}) Initialized")
         print(f"🔑 Server Wallet: {self.wallet.address}")
+        print(f"⛓️ Blockchain Height: {block_height} blocks | Generation: {generation}")
+        print(f"💾 Database: {DB_FILE}")
 
     def update_node_activity(self, address: str):
         """노드의 마지막 활동 시간 기록"""
@@ -399,10 +408,18 @@ class MindHashNode:
                 reward = 1.0
                 self.ledger.update_balance(data['address'], reward, data['public_key'])
                 
+                # 블록 높이 확인
+                last_block = self.ledger.get_last_block()
+                block_height = last_block['idx'] if last_block else 0
+                generation = 1 + (block_height // EVOLUTION_INTERVAL)
+                print(f"⛓️ Block #{block_height} mined by {data['address'][:16]}... | Gen {generation} | Loss: {loss:.4f}")
+                
                 return jsonify({
                     "status": "accepted",
                     "reward": reward,
-                    "new_balance": self.ledger.get_balance(data['address'])
+                    "new_balance": self.ledger.get_balance(data['address']),
+                    "block_height": block_height,
+                    "generation": generation
                 })
 
             except Exception as e:
