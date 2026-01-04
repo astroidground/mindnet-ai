@@ -246,6 +246,7 @@ NETWORK GROWTH:
         
         // --- Configuration ---
         const SEQUENCE_LENGTH = 10;
+        const MODEL_VERSION = 'BiLSTM_v2'; // Model architecture version (for compatibility check)
         const VOCAB = 'abcdefghijklmnopqrstuvwxyz .';
         const vocab = VOCAB.split('');
         const charToIndex = {};
@@ -489,6 +490,10 @@ NETWORK GROWTH:
                 this.weights = data.weights || null;         // Full weights (verifiable) - Fallback if IPFS fails
                 this.weightsCID = data.weightsCID || null;   // IPFS CID for weights (preferred)
                 this.trainingData = data.trainingData || ""; // Training data evidence
+                
+                // 🔖 Model compatibility tracking
+                this.modelVersion = data.modelVersion || 'unknown'; // Architecture version
+                this.generation = data.generation || 1;             // Evolution generation
                 
                 this.hash = this.calculateHash();
             }
@@ -1297,6 +1302,14 @@ NETWORK GROWTH:
                 return;
             }
             
+            // 🔖 Check model version compatibility (for weights verification)
+            const blockVersion = block.modelVersion || 'unknown';
+            if (blockVersion !== MODEL_VERSION && blockVersion !== 'unknown') {
+                console.warn(`⚠️ Block #${block.index} has incompatible model version: ${blockVersion} vs ${MODEL_VERSION}`);
+                addLog(`⚠️ Block #${block.index} skipped (incompatible model version)`, "warn");
+                return;
+            }
+            
             if (block.index === latestBlock.index + 1) {
                 const peerRep = getReputation(peerId);
                 addLog(`🧐 Verifying block #${block.index} from ${peerId.substring(0, 8)} (Rep: ${peerRep.score})...`, "info");
@@ -1387,8 +1400,16 @@ NETWORK GROWTH:
         async function handleWeightsUpdate(peerId, data) {
             const receivedLoss = data.loss;
             const receivedWeights = data.weights;
+            const receivedVersion = data.modelVersion || 'unknown';
             
             addLog(`🧠 Weights received from ${peerId.substring(0, 8)}... (Loss: ${receivedLoss.toFixed(4)})`, "info");
+            
+            // Check version compatibility
+            if (receivedVersion !== MODEL_VERSION && receivedVersion !== 'unknown') {
+                console.warn(`⚠️ Received weights version mismatch: ${receivedVersion} vs ${MODEL_VERSION}`);
+                addLog(`⚠️ Rejected weights (incompatible version)`, "warn");
+                return;
+            }
             
             // Consensus: Only accept if better than local
             if (receivedLoss < localBestLoss && receivedWeights) {
@@ -1397,6 +1418,13 @@ NETWORK GROWTH:
                 try {
                     // Apply weights to model
                     if (model) {
+                        const modelWeights = model.getWeights();
+                        
+                        // Verify weight count matches
+                        if (receivedWeights.length !== modelWeights.length) {
+                            throw new Error(`Weight count mismatch: received=${receivedWeights.length}, model=${modelWeights.length}`);
+                        }
+                        
                         const tensors = receivedWeights.map(w => tf.tensor(w.data, w.shape));
                         model.setWeights(tensors);
                         tensors.forEach(t => t.dispose());
@@ -1414,6 +1442,8 @@ NETWORK GROWTH:
                             type: 'weights_update',
                             loss: receivedLoss,
                             weights: receivedWeights,
+                            modelVersion: MODEL_VERSION,
+                            generation: currentGeneration,
                             origin: peerId
                         });
                     }
@@ -1446,7 +1476,9 @@ NETWORK GROWTH:
                 sendToPeer(conn, {
                     type: 'weights_update',
                     loss: localBestLoss,
-                    weights: weights
+                    weights: weights,
+                    modelVersion: MODEL_VERSION,
+                    generation: currentGeneration
                 });
             }
         }
@@ -1998,7 +2030,9 @@ NETWORK GROWTH:
                         weightsCID: weightsCID,        // 📦 IPFS CID (preferred - saves bandwidth)
                         weights: weightsCID ? null : weights, // ✅ Fallback: full weights if IPFS unavailable
                         trainingData: trainingText,    // ✅ Include training data evidence
-                        reward: BLOCK_WIN_REWARD       // 🎁 Performance reward (5.0 GEN)
+                        reward: BLOCK_WIN_REWARD,      // 🎁 Performance reward (5.0 GEN)
+                        modelVersion: MODEL_VERSION,   // 🔖 Model architecture version
+                        generation: currentGeneration  // 🧬 Evolution generation
                     });
                     
                     if (newBlock) {
@@ -2015,6 +2049,8 @@ NETWORK GROWTH:
                         type: 'weights_update',
                         loss: loss,
                         weights: weights,
+                        modelVersion: MODEL_VERSION,
+                        generation: currentGeneration,
                         origin: myPeerId
                     });
                     
@@ -2075,9 +2111,11 @@ NETWORK GROWTH:
                 localStorage.setItem('p2p_best_weights', JSON.stringify({
                     weights: weights,
                     loss: loss,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    modelVersion: MODEL_VERSION, // Save model version for compatibility
+                    generation: currentGeneration // Save generation for verification
                 }));
-                console.log("💾 Weights saved to localStorage");
+                console.log(`💾 Weights saved (Version: ${MODEL_VERSION}, Gen: ${currentGeneration})`);
             } catch(e) {
                 console.error("Failed to save weights:", e);
             }
@@ -2088,7 +2126,25 @@ NETWORK GROWTH:
                 const saved = localStorage.getItem('p2p_best_weights');
                 if (saved) {
                     const data = JSON.parse(saved);
-                    console.log("📂 Found saved weights (Loss:", data.loss.toFixed(4), ")");
+                    
+                    // Check model version compatibility
+                    if (data.modelVersion !== MODEL_VERSION) {
+                        console.warn(`⚠️ Saved weights version mismatch: ${data.modelVersion || 'unknown'} vs ${MODEL_VERSION}`);
+                        console.warn("   Clearing incompatible weights...");
+                        localStorage.removeItem('p2p_best_weights');
+                        addLog("⚠️ Previous model weights incompatible (cleared)", "warn");
+                        return null;
+                    }
+                    
+                    // Check generation compatibility
+                    if (data.generation !== currentGeneration) {
+                        console.warn(`⚠️ Saved weights generation mismatch: Gen ${data.generation} vs Gen ${currentGeneration}`);
+                        console.warn("   Clearing incompatible weights...");
+                        localStorage.removeItem('p2p_best_weights');
+                        return null;
+                    }
+                    
+                    console.log(`📂 Found saved weights (Loss: ${data.loss.toFixed(4)}, Version: ${data.modelVersion}, Gen: ${data.generation})`);
                     return data;
                 }
             } catch(e) {
@@ -2264,13 +2320,23 @@ NETWORK GROWTH:
                     if (saved) {
                         try {
                             const tensors = saved.weights.map(w => tf.tensor(w.data, w.shape));
+                            
+                            // Verify weight count matches model expectations
+                            const modelWeights = model.getWeights();
+                            if (tensors.length !== modelWeights.length) {
+                                throw new Error(`Weight count mismatch: saved=${tensors.length}, model=${modelWeights.length}`);
+                            }
+                            
                             model.setWeights(tensors);
                             tensors.forEach(t => t.dispose());
                             localBestLoss = saved.loss;
                             document.getElementById('local-loss').innerText = localBestLoss.toFixed(4);
                             addLog(`📂 Loaded saved weights (Loss: ${localBestLoss.toFixed(4)})`, "success");
                         } catch(e) {
-                            console.error("Failed to load saved weights:", e);
+                            console.error("❌ Failed to load saved weights:", e.message);
+                            console.warn("   Clearing incompatible weights...");
+                            localStorage.removeItem('p2p_best_weights');
+                            addLog("⚠️ Saved weights incompatible with current model (cleared)", "warn");
                         }
                     }
                 }
