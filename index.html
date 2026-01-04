@@ -1058,56 +1058,47 @@ NETWORK GROWTH:
             return model;
         }
 
-        // --- Wikipedia Data Foraging (Same as Python server!) ---
-        const WIKI_TOPICS = [
-            "Artificial_intelligence", 
-            "Evolution", 
-            "Blockchain", 
-            "Neural_network", 
-            "Machine_learning",
-            "Genetic_algorithm", 
-            "Life", 
-            "Universe", 
-            "Philosophy", 
-            "Mathematics",
-            "Computer_science",
-            "Quantum_computing",
-            "Cryptography",
-            "Information_theory"
-        ];
-        
+        // --- Wikipedia Data Foraging - UNLIMITED KNOWLEDGE! ---
         let cachedWikiText = null;
         let lastFetchTime = 0;
-        const FETCH_INTERVAL = 30000; // Fetch new data every 30 seconds
+        const FETCH_INTERVAL = 5000; // 5초마다 새로운 데이터 (빠른 다양성)
         
         async function fetchWikipediaData() {
             try {
-                const topic = WIKI_TOPICS[Math.floor(Math.random() * WIKI_TOPICS.length)];
-                const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${topic}`;
+                // 🎲 Method 1: 완전 랜덤 페이지 (Wikipedia Random API)
+                const randomUrl = 'https://en.wikipedia.org/api/rest_v1/page/random/summary';
                 
-                const response = await fetch(url);
+                const response = await fetch(randomUrl);
                 if (!response.ok) throw new Error("Wikipedia fetch failed");
                 
                 const data = await response.json();
                 const text = data.extract || data.description || "";
+                const title = data.title || "Unknown";
                 
                 if (text.length > 100) {
                     // Show what we're learning
                     const preview = text.substring(0, 200) + "...";
-                    const topicName = topic.replace(/_/g, ' ');
                     document.getElementById('learning-preview').innerHTML = 
-                        `<div class="text-yellow-400 font-bold mb-1">📚 ${topicName}</div>` +
+                        `<div class="text-yellow-400 font-bold mb-1">📚 ${title}</div>` +
                         `<div class="text-gray-300">${preview}</div>`;
                     
-                    addLog(`📚 Learning: ${topicName}`, "info");
+                    addLog(`📚 Learning: ${title}`, "info");
+                    console.log(`📖 New topic: ${title} (${text.length} chars)`);
                     return text;
                 }
             } catch (e) {
                 console.warn("Wikipedia fetch error:", e);
             }
             
-            // Fallback
-            const fallback = "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.";
+            // Fallback: 다양한 기본 텍스트들
+            const fallbacks = [
+                "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.",
+                "The universe contains billions of galaxies, each with billions of stars and potentially countless planets.",
+                "Philosophy explores fundamental questions about existence, knowledge, values, reason, mind, and language.",
+                "Mathematics is the abstract study of topics such as quantity, structure, space, and change.",
+                "Evolution by natural selection is the process by which species adapt to their environment over generations."
+            ];
+            const fallback = fallbacks[Math.floor(Math.random() * fallbacks.length)];
             document.getElementById('learning-preview').innerHTML = 
                 `<div class="text-gray-500">Fallback training data</div>`;
             return fallback;
@@ -1116,7 +1107,7 @@ NETWORK GROWTH:
         async function generateTrainingData() {
             const now = Date.now();
             
-            // Fetch new data if cache is old or empty
+            // 5초마다 새로운 Wikipedia 페이지 (다양성 극대화!)
             if (!cachedWikiText || (now - lastFetchTime > FETCH_INTERVAL)) {
                 cachedWikiText = await fetchWikipediaData();
                 lastFetchTime = now;
@@ -1164,15 +1155,15 @@ NETWORK GROWTH:
                     return;
                 }
                 
-                const history = await model.fit(xs, ys, {
-                    epochs: 1,
+            const history = await model.fit(xs, ys, {
+                epochs: 1,
                     batchSize: 32,
                     shuffle: true,
                     verbose: 0
-                });
-                
-                const loss = history.history.loss[0];
-                
+            });
+            
+            const loss = history.history.loss[0];
+            
                 xs.dispose();
                 ys.dispose();
                 
