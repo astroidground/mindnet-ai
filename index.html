@@ -241,10 +241,11 @@ NETWORK GROWTH:
         const GOSSIP_INTERVAL = 5000; // Broadcast state every 5 seconds
         const TRAINING_DATA_LENGTH = 200; // Length of training text
         
-        // --- 🎯 개조된 이중 보상 시스템 ---
-        const REWARD_PER_EPOCH = 0.01;   // 공부 1번당 소액 보상 (연산력 기여)
-        const BLOCK_WIN_REWARD = 5.0;    // 지능 향상 성공 시 보너스 (성과 보상)
-        const VALIDATION_THRESHOLD = 0.05; // 검증 오차 허용 범위 (수치 조작 방지)
+        // --- 🎯 개조된 삼중 보상 시스템 ---
+        const REWARD_PER_EPOCH = 0.01;      // 공부 1번당 소액 보상 (PoW - 연산력 기여)
+        const BLOCK_WIN_REWARD = 5.0;       // 블록 생성 성공 시 보너스 (PoW - 성과 보상)
+        const VALIDATION_REWARD = 0.1;      // 블록 검증 성공 시 보상 (PoV - 검증자 보상)
+        const VALIDATION_THRESHOLD = 0.05;  // 검증 오차 허용 범위 (수치 조작 방지)
         
         // --- Wallet & Security ---
         const EC = elliptic.ec;
@@ -914,6 +915,11 @@ NETWORK GROWTH:
                     }
                     
                     addLog(`✅ PoV passed: Loss is mathematically correct`, "success");
+                    
+                    // 🎁 검증자 보상 지급 (검증 노동에 대한 보상)
+                    addBalance(VALIDATION_REWARD);
+                    updateGlobalLedger(walletAddress, VALIDATION_REWARD);
+                    addLog(`🔍 Validation reward: +${VALIDATION_REWARD} GEN (검증 완료!)`, "success");
                 } else {
                     console.warn("⚠️ Block has no verification data (legacy block?)");
                 }
@@ -925,7 +931,7 @@ NETWORK GROWTH:
                 // 💰 채굴자에게 보상 인정 (Global Ledger 업데이트)
                 if (block.reward && block.miner) {
                     updateGlobalLedger(block.miner, block.reward);
-                    addLog(`💰 Reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
+                    addLog(`💰 Miner reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
                 }
                 
                 // UI 업데이트
