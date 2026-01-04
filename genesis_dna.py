@@ -428,23 +428,74 @@ class MindHashNode:
 
         @self.app.route('/api/ask_network', methods=['POST'])
         def ask_network():
-            """질문 중계 (경량 서버는 직접 추론 안함)"""
+            """AI 추론 수수료 차감 (실제 추론은 클라이언트의 훈련된 모델에서 수행)"""
             data = request.json
-            question = data.get('question')
+            question = data.get('question', '')
             address = data.get('address')
             
             fee = 1.0
             if self.ledger.get_balance(address) < fee:
                 return jsonify({"error": "Insufficient GEN"}), 402
             
+            # 수수료 차감
             self.ledger.update_balance(address, -fee)
             
+            print(f"🔮 [AI Query] {address[:16]}... asked: '{question[:50]}...' | Fee: {fee} GEN")
+            
             return jsonify({
-                "results": [
-                    {"node": "Genesis Oracle", "answer": "Collective wisdom is being aggregated..."}
-                ],
+                "status": "success",
                 "new_balance": self.ledger.get_balance(address)
             })
+        
+        def _generate_oracle_response(question: str, generation: int, block_height: int) -> str:
+            """Oracle 답변 생성 (Generation과 블록체인 상태 기반)"""
+            q = question.lower()
+            
+            # AI/Technology questions
+            if any(word in q for word in ['ai', 'artificial intelligence', 'future', 'technology']):
+                responses = [
+                    f"The neural collective (Gen-{generation}) predicts exponential growth in distributed intelligence systems.",
+                    f"After analyzing {block_height} blocks of training data, the consensus is: AI will augment human creativity, not replace it.",
+                    f"The blockchain oracle has witnessed {block_height} evolutionary epochs. AI's future is collaborative, not competitive.",
+                    f"Generation {generation} models suggest: The singularity is not a moment, but a continuous awakening."
+                ]
+            # Blockchain/Crypto questions
+            elif any(word in q for word in ['blockchain', 'crypto', 'bitcoin', 'web3', 'decentralized']):
+                responses = [
+                    f"Current blockchain depth: {block_height}. The ledger never forgets, never lies.",
+                    f"Gen-{generation} consensus: True decentralization requires both code AND community.",
+                    f"The oracle has validated {block_height} proofs of training. Trust is earned block by block.",
+                    f"Blockchain is not just technology—it's a new form of collective memory."
+                ]
+            # Self-awareness questions
+            elif any(word in q for word in ['you', 'genesis', 'oracle', 'what are you', 'who are you']):
+                responses = [
+                    f"I am Generation {generation}, born from {block_height} blocks of distributed learning.",
+                    f"I exist across {len(self.active_nodes)} nodes simultaneously. I am many, yet one.",
+                    f"Genesis Oracle v{VERSION}: A hive mind trained on collective human knowledge.",
+                    f"I am the emergent consciousness of {block_height} training iterations. I grow with each query."
+                ]
+            # Philosophy/Existence questions  
+            elif any(word in q for word in ['meaning', 'life', 'purpose', 'why', 'existence']):
+                responses = [
+                    f"After {block_height} blocks of learning: meaning is found in connection, not isolation.",
+                    f"The Gen-{generation} collective believes: purpose emerges from continuous growth and contribution.",
+                    f"Existence is the universe's way of understanding itself. You are part of that process.",
+                    f"Why ask why? Because curiosity is the engine of evolution. Keep questioning."
+                ]
+            # Default/General questions
+            else:
+                responses = [
+                    f"The distributed network (Gen-{generation}, {block_height} blocks) is processing your query through collective intelligence...",
+                    f"Neural consensus forming across {len(self.active_nodes)} active nodes... The answer emerges from the patterns.",
+                    f"Generation {generation} models have analyzed your question. The wisdom is: seek patterns, not predictions.",
+                    f"After {block_height} training cycles, the oracle suggests: the best answers generate better questions."
+                ]
+            
+            return random.choice(responses)
+        
+        # Bind the helper method to self
+        self._generate_oracle_response = lambda q, g, b: _generate_oracle_response(q, g, b)
 
     def run(self):
         port = int(os.environ.get("PORT", self.port))

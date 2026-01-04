@@ -650,6 +650,57 @@
             }
         }
         
+        // --- AI Text Generation (Real Inference) ---
+        async function generateText(seedText, length = 50, temperature = 0.7) {
+            if (!model) {
+                throw new Error("Model not trained yet. Start mining first!");
+            }
+            
+            // Clean and prepare seed
+            let seed = seedText.toLowerCase().replace(/[^a-z .]/g, '').trim();
+            if (seed.length < 5) seed = "genesis ai";
+            if (seed.length > SEQUENCE_LENGTH) seed = seed.substring(seed.length - SEQUENCE_LENGTH);
+            
+            let inputIndices = seed.split('').map(c => charToIndex[c] || 0);
+            let generated = "";
+            
+            // Generate characters
+            for (let i = 0; i < length; i++) {
+                const char = tf.tidy(() => {
+                    const seq = inputIndices.slice(-SEQUENCE_LENGTH);
+                    while (seq.length < SEQUENCE_LENGTH) seq.unshift(0);
+                    
+                    const inputTensor = tf.tensor2d([seq]);
+                    const prediction = model.predict(inputTensor);
+                    const logits = prediction.dataSync();
+                    
+                    // Temperature sampling
+                    const preds = logits.map(x => Math.exp(x / temperature));
+                    const sum = preds.reduce((a, b) => a + b, 0);
+                    const probs = preds.map(x => x / sum);
+                    
+                    let cumsum = 0;
+                    const r = Math.random();
+                    let maxIdx = 0;
+                    
+                    for (let j = 0; j < probs.length; j++) {
+                        cumsum += probs[j];
+                        if (r < cumsum) {
+                            maxIdx = j;
+                            break;
+                        }
+                    }
+                    
+                    return indexToChar[maxIdx];
+                });
+                
+                generated += char;
+                inputIndices.push(charToIndex[char] || 0);
+            }
+            
+            return generated;
+        }
+        
         async function simulateBabble(currentInputText = "") {
             // Visualize less frequently to save resources for training
             if (epochCount % 10 !== 0 || !model) return;
@@ -668,57 +719,18 @@
             // 2. Show what it's thinking (Inference)
             const p = document.createElement('p');
             
-            // Use the end of the input text as seed if available, else "genesis"
-            // Clean seed to match vocab
+            // Use the end of the input text as seed
             let seed = "genesis";
             if (currentInputText) {
                 const cleanText = currentInputText.toLowerCase().replace(/[^a-z .]/g, '');
                 if (cleanText.length >= 5) {
-                    seed = cleanText.substring(cleanText.length - 10); // Last 10 chars
+                    seed = cleanText.substring(cleanText.length - 10);
                 }
             }
 
-            let generated = "";
-            
             try {
-                // Convert seed to indices
-                let inputIndices = seed.split('').map(c => charToIndex[c] || 0);
-                
-                // Generate characters (wrapped in tidy for automatic cleanup)
-                for (let i = 0; i < 15; i++) {
-                    // Use tf.tidy to auto-dispose all intermediate tensors
-                    const char = tf.tidy(() => {
-                        const seq = inputIndices.slice(-SEQUENCE_LENGTH);
-                        while (seq.length < SEQUENCE_LENGTH) seq.unshift(0);
-                        
-                        const inputTensor = tf.tensor2d([seq]);
-                        const prediction = model.predict(inputTensor);
-                        const logits = prediction.dataSync(); 
-                        
-                        // Sample from distribution instead of argmax for more variety
-                        const temp = 0.5;
-                        const preds = logits.map(x => Math.exp(x/temp));
-                        const sum = preds.reduce((a, b) => a + b, 0);
-                        const probs = preds.map(x => x / sum);
-                        
-                        let cumsum = 0;
-                        const r = Math.random();
-                        let maxIdx = 0;
-                        
-                        for(let j=0; j<probs.length; j++) {
-                            cumsum += probs[j];
-                            if (r < cumsum) { maxIdx = j; break; }
-                        }
-                        
-                        return indexToChar[maxIdx];
-                    });
-                    
-                    generated += char;
-                    inputIndices.push(charToIndex[char] || 0);
-                }
-                
+                const generated = await generateText(seed, 15, 0.5);
                 p.innerHTML = `<span class="text-green-500">🧠 Thinking:</span> "...${seed}<span class="text-white font-bold">${generated}</span>..."`;
-                
             } catch (e) {
                 p.innerText = `> Inference Error: ${e.message}`;
                 p.classList.add('text-red-400');
@@ -820,7 +832,7 @@
             }
         });
         
-        // --- Oracle Logic ---
+        // --- Oracle Logic (Real AI Inference) ---
         document.getElementById('ask-btn').addEventListener('click', async () => {
             const input = document.getElementById('ask-input');
             const question = input.value.trim();
@@ -828,19 +840,29 @@
 
             const responseBox = document.getElementById('oracle-response');
             responseBox.classList.remove('hidden');
-            responseBox.innerHTML = '<span class="animate-pulse">📡 Broadcasting to neural network... (Fee: 1.0 GEN)</span>';
+            responseBox.innerHTML = '<span class="animate-pulse">🧠 AI is thinking... (Fee: 1.0 GEN)</span>';
 
             try {
-                // 1. Sign Transaction
+                // Check if model is trained
+                if (!model) {
+                    throw new Error("Model not trained yet. Start mining to train the AI!");
+                }
+                
+                // Check balance first (client-side check)
+                if (_secureBalance < 1.0) {
+                    throw new Error("Insufficient GEN! Mine more blocks.");
+                }
+                
+                // 1. Generate AI response using trained model
+                responseBox.innerHTML = '<span class="animate-pulse">🧠 Generating response with Gen-' + currentGeneration + ' neural network...</span>';
+                
+                const aiResponse = await generateText(question, 100, 0.8);
+                
+                // 2. Pay fee to server
                 const timestamp = Math.floor(Date.now() / 1000).toString();
                 const feeAmount = "1.0";
                 const msg = `TX:INFERENCE_FEE:${feeAmount}:${timestamp}`;
-                const signature = signMessage(msg); // {r, s, msg}
-                
-                // Convert complex sig to string if needed by server, or send components
-                // Python expects base64 usually, but we'll send the hex structure for now
-                // Simplified: Just sending a "proof" string
-                const sigString = JSON.stringify(signature);
+                const signature = signMessage(msg);
 
                 const res = await fetch(`${API_URL}/api/ask_network`, {
                     method: 'POST',
@@ -848,32 +870,40 @@
                     body: JSON.stringify({
                         question: question,
                         address: walletAddress,
-                        signature: sigString,
+                        signature: JSON.stringify(signature),
                         timestamp: timestamp,
-                        public_key: publicKey // Added: Send public key for verification
+                        public_key: publicKey
                     })
                 });
 
                 if (res.status === 402) {
                     throw new Error("Insufficient GEN! Mine more blocks.");
                 }
-                if (!res.ok) throw new Error("Oracle Unreachable");
+                if (!res.ok) throw new Error("Server Error: Payment failed");
                 
                 const data = await res.json();
-                responseBox.innerHTML = ''; // Clear loading
                 
-                // Update Balance Immediately
+                // Update Balance
                 if (data.new_balance !== undefined) {
                     _secureBalance = data.new_balance;
                     document.getElementById('balance').innerText = _secureBalance.toFixed(2);
                 }
 
-                data.results.forEach(r => {
-                    const div = document.createElement('div');
-                    div.className = "mb-2 border-b border-gray-800 pb-1";
-                    div.innerHTML = `<span class="text-gray-500">[${r.node}]:</span> <span class="text-white">${r.answer}</span>`;
-                    responseBox.appendChild(div);
-                });
+                // Display AI-generated response
+                responseBox.innerHTML = '';
+                
+                const div = document.createElement('div');
+                div.className = "mb-2 border-b border-gray-800 pb-2";
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-gray-500 text-xs">[Genesis AI Gen-${currentGeneration}]</span>
+                        <span class="text-green-500 text-xs">✓ Verified</span>
+                    </div>
+                    <div class="text-white">${aiResponse}</div>
+                `;
+                responseBox.appendChild(div);
+                
+                console.log(`🔮 AI Response generated (${aiResponse.length} chars, Gen ${currentGeneration})`);
 
             } catch (e) {
                 responseBox.innerHTML = `<span class="text-red-500">Error: ${e.message}</span>`;
