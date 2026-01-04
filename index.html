@@ -221,10 +221,26 @@ NETWORK GROWTH:
                     📋 COPY INVITE LINK
                 </button>
                 
+                <!-- Manual Connect -->
+                <details class="mb-3">
+                    <summary class="text-xs text-cyan-400 cursor-pointer hover:text-cyan-300">
+                        🔗 Manual Connect (if auto-connect fails)
+                    </summary>
+                    <div class="mt-2 p-2 bg-gray-900 rounded">
+                        <input type="text" id="manual-peer-id" placeholder="Paste Peer ID here..." 
+                               class="w-full text-xs p-1 bg-black border border-gray-700 text-white mb-1">
+                        <button id="manual-connect-btn" class="w-full text-xs py-1 bg-green-800 hover:bg-green-700 text-white">
+                            Connect
+                        </button>
+                    </div>
+                </details>
+                
                 <div class="space-y-2 text-sm">
-                    <div class="flex justify-between">
+                    <div class="flex justify-between items-center">
                         <span class="text-gray-400">My Peer ID</span>
-                        <span id="my-peer-id" class="font-mono text-xs">-</span>
+                        <button id="copy-peer-id" class="font-mono text-xs hover:text-cyan-400 cursor-pointer transition-colors" title="Click to copy full Peer ID">
+                            <span id="my-peer-id">-</span>
+                        </button>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">Connected Peers</span>
@@ -745,7 +761,7 @@ NETWORK GROWTH:
                         // Don't spam connections
                         if (!connections[peerId]) {
                             addLog(`📱 Auto-connecting to peer in another tab...`, "info");
-                            setTimeout(() => connectToPeer(peerId), 1000);
+                            setTimeout(() => connectToPeer(peerId), 500);
                         }
                     }
                 };
@@ -754,9 +770,66 @@ NETWORK GROWTH:
             } catch(e) {
                 console.warn("BroadcastChannel not supported:", e);
             }
+            
+            // 🔄 Alternative: localStorage-based discovery (more reliable)
+            registerTabInStorage();
+            scanForOtherTabs();
+        }
+        
+        function registerTabInStorage() {
+            if (!myPeerId) return;
+            
+            try {
+                // Get existing tabs
+                const tabsData = localStorage.getItem('genesis_active_tabs');
+                const tabs = tabsData ? JSON.parse(tabsData) : {};
+                
+                // Add this tab
+                tabs[myPeerId] = {
+                    peerId: myPeerId,
+                    timestamp: Date.now(),
+                    sessionId: Date.now() + Math.random() // Unique session
+                };
+                
+                // Clean old tabs (older than 30 seconds)
+                const now = Date.now();
+                Object.keys(tabs).forEach(id => {
+                    if (now - tabs[id].timestamp > 30000) {
+                        delete tabs[id];
+                    }
+                });
+                
+                localStorage.setItem('genesis_active_tabs', JSON.stringify(tabs));
+                console.log(`📝 Registered in localStorage: ${Object.keys(tabs).length} tab(s)`);
+            } catch(e) {
+                console.error("Failed to register tab:", e);
+            }
+        }
+        
+        function scanForOtherTabs() {
+            try {
+                const tabsData = localStorage.getItem('genesis_active_tabs');
+                if (!tabsData) return;
+                
+                const tabs = JSON.parse(tabsData);
+                const otherPeers = Object.keys(tabs).filter(id => id !== myPeerId);
+                
+                console.log(`🔍 Scanning for tabs: Found ${otherPeers.length} other tab(s)`);
+                
+                otherPeers.forEach(peerId => {
+                    if (!connections[peerId]) {
+                        console.log(`🔗 Connecting to tab: ${peerId.substring(0, 8)}`);
+                        addLog(`📱 Found peer in another tab: ${peerId.substring(0, 8)}...`, "info");
+                        setTimeout(() => connectToPeer(peerId), 500);
+                    }
+                });
+            } catch(e) {
+                console.error("Failed to scan tabs:", e);
+            }
         }
         
         function announceToOtherTabs() {
+            // BroadcastChannel announcement
             if (tabChannel && myPeerId) {
                 tabChannel.postMessage({
                     type: 'peer_announce',
@@ -764,7 +837,18 @@ NETWORK GROWTH:
                     timestamp: Date.now()
                 });
             }
+            
+            // localStorage registration (backup method)
+            registerTabInStorage();
         }
+        
+        // Periodic tab scanning
+        setInterval(() => {
+            if (myPeerId) {
+                registerTabInStorage();
+                scanForOtherTabs();
+            }
+        }, 3000); // Every 3 seconds
         let networkState = {
             bestLoss: 9.9,
             bestWeights: null,
@@ -1470,12 +1554,26 @@ NETWORK GROWTH:
                 document.getElementById('share-btn').disabled = false;
                 
                 // 📱 Announce to other tabs in same browser
+                console.log("📢 Initial announcement...");
                 announceToOtherTabs();
+                
+                // Announce multiple times at start (more aggressive)
+                setTimeout(() => {
+                    console.log("📢 Second announcement...");
+                    announceToOtherTabs();
+                    scanForOtherTabs();
+                }, 1000);
+                
+                setTimeout(() => {
+                    console.log("📢 Third announcement...");
+                    announceToOtherTabs();
+                    scanForOtherTabs();
+                }, 3000);
                 
                 // Keep announcing periodically (in case other tabs open later)
                 setInterval(() => {
                     announceToOtherTabs();
-                }, 5000);
+                }, 2000); // Every 2 seconds (was 5)
                 
                 // Show shareable URL
                 const shareURL = generateShareURL();
@@ -3018,6 +3116,50 @@ NETWORK GROWTH:
                 // Fallback: show URL in prompt
                 prompt("Copy this URL to invite peers:", shareURL);
             }
+        });
+        
+        // Copy Peer ID button
+        document.getElementById('copy-peer-id').addEventListener('click', async () => {
+            if (!myPeerId) return;
+            
+            try {
+                await navigator.clipboard.writeText(myPeerId);
+                addLog(`📋 Peer ID copied: ${myPeerId}`, "success");
+                
+                const btn = document.getElementById('my-peer-id');
+                const originalText = btn.innerText;
+                btn.innerText = "✅ Copied!";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                }, 2000);
+            } catch(e) {
+                prompt("Copy this Peer ID:", myPeerId);
+            }
+        });
+        
+        // Manual connect button
+        document.getElementById('manual-connect-btn').addEventListener('click', () => {
+            const peerIdInput = document.getElementById('manual-peer-id');
+            const peerId = peerIdInput.value.trim();
+            
+            if (!peerId) {
+                addLog("⚠️ Please enter a Peer ID", "warn");
+                return;
+            }
+            
+            if (peerId === myPeerId) {
+                addLog("⚠️ Cannot connect to yourself!", "warn");
+                return;
+            }
+            
+            if (connections[peerId]) {
+                addLog(`ℹ️ Already connected to ${peerId.substring(0, 8)}`, "info");
+                return;
+            }
+            
+            addLog(`🔗 Manually connecting to ${peerId.substring(0, 8)}...`, "info");
+            connectToPeer(peerId);
+            peerIdInput.value = '';
         });
         
         document.getElementById('inference-btn').addEventListener('click', async () => {
