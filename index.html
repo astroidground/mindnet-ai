@@ -320,15 +320,18 @@ NETWORK GROWTH:
                         <span id="total-mined" class="font-bold text-yellow-400">0</span>
                     </div>
                     <div class="flex justify-between border-t border-gray-700 pt-2 mt-2">
-                        <span class="text-gray-400">🧬 Your Generation</span>
+                        <span class="text-gray-400" title="Higher = Smarter AI (more parameters)">🧬 Your Generation</span>
                         <span id="brain-generation" class="font-bold text-green-400">-</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-400">🌐 Network Generation</span>
+                        <span class="text-gray-400" title="Network's current AI generation">🌐 Network Generation</span>
                         <span id="network-generation" class="font-bold text-cyan-400">
                             <span id="network-gen-value">-</span>
                             <span id="sync-warning" class="text-xs text-red-400 hidden">⚠️ SYNC</span>
                         </span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1 italic">
+                        💡 Higher generation = More intelligent AI
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">📈 Next Evolution</span>
@@ -2806,7 +2809,9 @@ NETWORK GROWTH:
                 
                 if (targetGeneration > currentGeneration) {
                     addLog(`🧬 EVOLUTION TRIGGERED! Gen ${currentGeneration} → Gen ${targetGeneration}`, "success");
+                    addLog(`⏸️ Pausing mining for evolution...`, "info");
                     
+                    const oldLoss = localBestLoss;
                     const oldModel = model;
                     model = await upgradeBrain(oldModel, targetGeneration);
                     
@@ -2819,9 +2824,53 @@ NETWORK GROWTH:
                     // Update UI
                     const genText = ['1st', '2nd', '3rd'];
                     const suffix = currentGeneration <= 3 ? genText[currentGeneration - 1] : `${currentGeneration}th`;
+                    const units = calculateUnitsForGeneration(currentGeneration);
                     document.getElementById('brain-generation').innerText = `${suffix} Gen`;
+                    document.getElementById('brain-generation').title = `${units} units - More powerful than Gen ${currentGeneration - 1}`;
                     
-                    addLog(`✨ Brain upgraded to ${suffix} Generation!`, "success");
+                    addLog(`✨ Brain upgraded to ${suffix} Generation! (${units} units)`, "success");
+                    
+                    // 🔥 Intensive training after evolution (stabilize new parameters)
+                    addLog(`🎯 Post-evolution training (adapting new parameters)...`, "info");
+                    
+                    const evolutionTrainingRounds = 5; // Train 5 times intensively
+                    for (let round = 0; round < evolutionTrainingRounds; round++) {
+                        try {
+                            const trainingText = await generateTrainingData();
+                            const { xs, ys } = processData(trainingText);
+                            
+                            if (xs && ys) {
+                                const history = await model.fit(xs, ys, {
+                                    epochs: 3, // 3 epochs per round
+                                    batchSize: 32,
+                                    shuffle: true,
+                                    verbose: 0
+                                });
+                                
+                                const newLoss = history.history.loss[history.history.loss.length - 1];
+                                console.log(`  🔄 Evolution training ${round + 1}/${evolutionTrainingRounds}: Loss ${newLoss.toFixed(4)}`);
+                                
+                                if (newLoss < localBestLoss) {
+                                    localBestLoss = newLoss;
+                                    document.getElementById('local-loss').innerText = localBestLoss.toFixed(4);
+                                }
+                                
+                                xs.dispose();
+                                ys.dispose();
+                            }
+                        } catch (e) {
+                            console.error("Evolution training error:", e);
+                        }
+                    }
+                    
+                    const improvement = oldLoss - localBestLoss;
+                    if (improvement > 0) {
+                        addLog(`✅ Evolution complete! Intelligence improved by ${(improvement * 100).toFixed(1)}%`, "success");
+                    } else {
+                        addLog(`✅ Evolution complete! New generation is adapting...`, "success");
+                    }
+                    
+                    addLog(`▶️ Resuming normal mining...`, "info");
                 }
                 
                 // Update evolution progress UI
@@ -3136,7 +3185,9 @@ NETWORK GROWTH:
                     // Update UI
                     const genText = ['1st', '2nd', '3rd'];
                     const suffix = currentGeneration <= 3 ? genText[currentGeneration - 1] : `${currentGeneration}th`;
+                    const units = calculateUnitsForGeneration(currentGeneration);
                     document.getElementById('brain-generation').innerText = `${suffix} Gen`;
+                    document.getElementById('brain-generation').title = `${units} units - Generation ${currentGeneration} AI`;
                     
                     // Load saved weights if available
                     const saved = loadWeightsFromStorage();
