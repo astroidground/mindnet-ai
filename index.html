@@ -328,6 +328,30 @@ NETWORK GROWTH:
                 </div>
             </div>
             
+            <!-- Collaboration Status -->
+            <div class="neon-border p-4 bg-black bg-opacity-50">
+                <h2 class="text-lg neon-text mb-2">🤝 COLLABORATION STATUS</h2>
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
+                        <span class="text-xs text-gray-400">Weights Received</span>
+                        <span id="weights-received" class="text-sm font-bold text-blue-400">0</span>
+                    </div>
+                    <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
+                        <span class="text-xs text-gray-400">Gradients Shared</span>
+                        <span id="gradients-shared" class="text-sm font-bold text-green-400">0</span>
+                    </div>
+                    <div class="flex justify-between items-center p-2 bg-gray-900 bg-opacity-50 rounded">
+                        <span class="text-xs text-gray-400">Blocks Contributed</span>
+                        <span id="blocks-contributed" class="text-sm font-bold text-yellow-400">0</span>
+                    </div>
+                    <div class="p-2 bg-green-900 bg-opacity-20 border border-green-800 rounded mt-3">
+                        <p class="text-xs text-green-300 text-center">
+                            ✨ <span id="collaboration-status">All nodes learning together!</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
             <!-- P2P Activity Feed -->
             <div class="neon-border p-4 bg-black bg-opacity-50 flex flex-col">
                 <h2 class="text-lg neon-text mb-2">📡 P2P ACTIVITY LOG</h2>
@@ -614,6 +638,53 @@ NETWORK GROWTH:
         
         // --- Balance Management ---
         let balance = 0;
+        
+        // --- Collaboration Statistics ---
+        let collaborationStats = {
+            weightsReceived: 0,
+            gradientsShared: 0,
+            blocksContributed: 0
+        };
+        
+        function loadCollaborationStats() {
+            try {
+                const saved = localStorage.getItem('p2p_collab_stats');
+                if (saved) {
+                    collaborationStats = JSON.parse(saved);
+                    updateCollaborationUI();
+                }
+            } catch(e) {
+                console.error("Failed to load collaboration stats:", e);
+            }
+        }
+        
+        function saveCollaborationStats() {
+            try {
+                localStorage.setItem('p2p_collab_stats', JSON.stringify(collaborationStats));
+            } catch(e) {
+                console.error("Failed to save collaboration stats:", e);
+            }
+        }
+        
+        function updateCollaborationUI() {
+            document.getElementById('weights-received').innerText = collaborationStats.weightsReceived;
+            document.getElementById('gradients-shared').innerText = collaborationStats.gradientsShared;
+            document.getElementById('blocks-contributed').innerText = collaborationStats.blocksContributed;
+            
+            // Update status message
+            const total = collaborationStats.weightsReceived + collaborationStats.gradientsShared + collaborationStats.blocksContributed;
+            const statusEl = document.getElementById('collaboration-status');
+            
+            if (total === 0) {
+                statusEl.innerText = "Waiting to connect with network...";
+            } else if (total < 5) {
+                statusEl.innerText = "Starting to collaborate!";
+            } else if (total < 20) {
+                statusEl.innerText = "Actively learning together!";
+            } else {
+                statusEl.innerText = `Contributing to collective intelligence! (${total} interactions)`;
+            }
+        }
         
         function loadBalance() {
             const saved = localStorage.getItem('p2p_balance');
@@ -1115,6 +1186,11 @@ NETWORK GROWTH:
                 peerId: myPeerId,
                 timestamp: Date.now()
             });
+            
+            // 🤝 Update collaboration stats
+            collaborationStats.gradientsShared++;
+            saveCollaborationStats();
+            updateCollaborationUI();
             
             lastGradientShare = epochCount;
         }
@@ -1847,7 +1923,12 @@ NETWORK GROWTH:
                         // Save to localStorage
                         saveWeightsToStorage(receivedWeights, receivedLoss);
                         
-                        addLog(`✅ Applied better weights from network`, "success");
+                        // 🤝 Update collaboration stats
+                        collaborationStats.weightsReceived++;
+                        saveCollaborationStats();
+                        updateCollaborationUI();
+                        
+                        addLog(`✅ Applied better weights from network (Total received: ${collaborationStats.weightsReceived})`, "success");
                         
                         // Gossip to other peers
                         broadcastToNetwork({
@@ -2454,6 +2535,11 @@ NETWORK GROWTH:
                         addBalance(BLOCK_WIN_REWARD);
                         updateGlobalLedger(walletAddress, BLOCK_WIN_REWARD);
                         
+                        // 🤝 Update collaboration stats
+                        collaborationStats.blocksContributed++;
+                        saveCollaborationStats();
+                        updateCollaborationUI();
+                        
                         addLog(`⛏️ Block #${newBlock.index} mined! Intelligence boost bonus 💰 +${BLOCK_WIN_REWARD} GEN`, "success");
                     }
                     
@@ -2840,12 +2926,13 @@ NETWORK GROWTH:
         // INITIALIZATION
         // ============================================
         
-        loadBalance();        // 1. Load balance first
-        initGlobalLedger();   // 2. Initialize global ledger
-        initChart();          // 3. Initialize chart
-        updateDataSourcesUI(); // 4. Initialize data sources display
-        initIPFS();           // 5. Initialize IPFS (Decentralized storage)
-        initP2P();            // 6. Initialize P2P network
+        loadBalance();             // 1. Load balance first
+        loadCollaborationStats();  // 2. Load collaboration statistics
+        initGlobalLedger();        // 3. Initialize global ledger
+        initChart();               // 4. Initialize chart
+        updateDataSourcesUI();     // 5. Initialize data sources display
+        initIPFS();                // 6. Initialize IPFS (Decentralized storage)
+        initP2P();                 // 7. Initialize P2P network
         
         // Periodic gossip
         setInterval(() => {
