@@ -288,8 +288,12 @@ NETWORK GROWTH:
                         <span id="total-mined" class="font-bold text-yellow-400">0</span>
                     </div>
                     <div class="flex justify-between border-t border-gray-700 pt-2 mt-2">
-                        <span class="text-gray-400">🧬 Brain Generation</span>
-                        <span id="brain-generation" class="font-bold text-green-400">1st Gen</span>
+                        <span class="text-gray-400">🧬 Your Generation</span>
+                        <span id="brain-generation" class="font-bold text-green-400">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">🌐 Network Generation</span>
+                        <span id="network-generation" class="font-bold text-cyan-400">-</span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">📈 Next Evolution</span>
@@ -920,9 +924,23 @@ NETWORK GROWTH:
             
             replaceChain(newChain) {
                 if (newChain.length > this.chain.length && this.isValidChain(newChain)) {
-                    console.log('🔄 Replacing chain with longer valid chain');
+                    console.log(`🔄 Replacing chain: ${this.chain.length} → ${newChain.length} blocks`);
+                    
+                    const oldHeight = this.getBlockchainHeight();
                     this.chain = newChain;
                     this.saveChain();
+                    
+                    const newHeight = this.getBlockchainHeight();
+                    
+                    // 🧬 Check if generation changed due to chain replacement
+                    const oldGen = getGenerationFromBlockHeight(oldHeight);
+                    const newGen = getGenerationFromBlockHeight(newHeight);
+                    
+                    if (oldGen !== newGen && model && isMining) {
+                        console.log(`⚠️ Generation changed: ${oldGen} → ${newGen} (chain sync)`);
+                        addLog(`⚠️ Network generation changed: ${oldGen} → ${newGen}. Restart mining to update.`, "warn");
+                    }
+                    
                     return true;
                 }
                 return false;
@@ -2462,6 +2480,18 @@ NETWORK GROWTH:
                 const blockHeight = blockchain.getBlockchainHeight();
                 const targetGeneration = getGenerationFromBlockHeight(blockHeight);
                 
+                // Update network generation display
+                const networkGen = targetGeneration;
+                const genText = ['1st', '2nd', '3rd'];
+                const netGenText = networkGen <= 3 ? genText[networkGen - 1] : `${networkGen}th`;
+                document.getElementById('network-generation').innerText = `${netGenText} Gen`;
+                
+                // Check if local generation is behind
+                if (currentGeneration < targetGeneration - 1) {
+                    // More than 1 generation behind - recommend restart
+                    addLog(`⚠️ You are ${targetGeneration - currentGeneration} generation(s) behind! Stop and restart mining.`, "warn");
+                }
+                
                 if (targetGeneration > currentGeneration) {
                     addLog(`🧬 EVOLUTION TRIGGERED! Gen ${currentGeneration} → Gen ${targetGeneration}`, "success");
                     
@@ -2698,9 +2728,23 @@ NETWORK GROWTH:
             if (!isMining) {
                 // Start mining
                 if (!model) {
-                    // 🧬 Determine generation based on current blockchain height
+                    // 🧬 Determine generation based on NETWORK blockchain height
+                    // First, try to sync with network to get latest height
+                    if (Object.keys(connections).length > 0) {
+                        addLog(`🔄 Syncing with network before starting...`, "info");
+                        // Request chain from all peers
+                        Object.values(connections).forEach(conn => {
+                            sendToPeer(conn, { type: 'request_chain' });
+                        });
+                        
+                        // Wait 2 seconds for chain sync
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                    
                     const blockHeight = blockchain.getBlockchainHeight();
                     currentGeneration = getGenerationFromBlockHeight(blockHeight);
+                    
+                    console.log(`🧬 Starting with Generation ${currentGeneration} (Blockchain Height: ${blockHeight})`);
                     
                     model = await createModel(currentGeneration);
                     
@@ -2818,6 +2862,13 @@ NETWORK GROWTH:
         // Periodic data source UI update
         setInterval(() => {
             updateDataSourcesUI();
+            
+            // Update network generation display
+            const blockHeight = blockchain.getBlockchainHeight();
+            const networkGeneration = getGenerationFromBlockHeight(blockHeight);
+            const genText = ['1st', '2nd', '3rd'];
+            const netGenText = networkGeneration <= 3 ? genText[networkGeneration - 1] : `${networkGeneration}th`;
+            document.getElementById('network-generation').innerText = `${netGenText} Gen`;
             
             // Update explorer if it's the active tab
             if (currentTab === 'explorer') {
