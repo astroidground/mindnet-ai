@@ -674,9 +674,9 @@ NETWORK GROWTH:
                 epochCount++;
                 document.getElementById('epochs').innerText = epochCount;
                 
-                // Update chart
+                // Update chart (keep only last 10 data points)
                 lossHistory.push(loss);
-                if (lossHistory.length > 50) lossHistory.shift();
+                if (lossHistory.length > 10) lossHistory.shift();
                 updateChart();
                 
                 // If we found a better model, broadcast it
@@ -769,7 +769,8 @@ NETWORK GROWTH:
             p.innerHTML = `<span class="text-gray-600">[${new Date().toLocaleTimeString()}]</span> ${message}`;
             feed.prepend(p);
             
-            while(feed.children.length > 100) {
+            // Keep only last 20 logs
+            while(feed.children.length > 20) {
                 feed.lastChild.remove();
             }
         }
