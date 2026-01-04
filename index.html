@@ -241,7 +241,13 @@
         const walletAddress = "GEN_" + publicKey.substring(0, 16).toUpperCase();
         document.getElementById('wallet-address').innerText = walletAddress;
         
-        const API_URL = 'http://localhost:5001'; // Genesis Node URL (Port 5001 to avoid AirPlay conflict)
+        // --- DEPLOYMENT CONFIG ---
+        // Automatically switch between localhost and production server
+        const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:5001' 
+            : 'https://mindnet-ai.onrender.com';
+
+        console.log(`🔌 Connected to Genesis Node: ${API_URL}`);
 
         // Sync Balance Loop
         setInterval(async () => {
