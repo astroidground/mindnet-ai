@@ -7,4 +7,5 @@ venv/
 env/
 .env
 terminals/
+archive/
 
