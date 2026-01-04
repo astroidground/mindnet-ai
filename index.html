@@ -110,7 +110,7 @@
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">Model Params</span>
-                        <span class="font-bold">12,480</span>
+                        <span id="model-params" class="font-bold">-</span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">Local Epochs</span>
@@ -122,7 +122,10 @@
                     </div>
                     <div class="flex justify-between text-yellow-500">
                         <span>Brain Generation</span>
-                        <span id="brain-gen" class="font-bold">1st Gen</span>
+                        <span id="brain-gen" class="font-bold" title="100 blocks = 1 generation">1st Gen</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2 text-center">
+                        <span id="gen-progress">0/100 blocks to 2nd Gen</span>
                     </div>
                 </div>
             </div>
@@ -366,7 +369,25 @@
                 loss: 'categoricalCrossentropy'
             });
             
+            // Update Model Params in UI
+            updateModelParams(model);
+            
             return model;
+        }
+        
+        function updateModelParams(model) {
+            if (!model) {
+                document.getElementById('model-params').innerText = '-';
+                return;
+            }
+            const params = model.countParams();
+            const formatted = params >= 1000000 
+                ? (params / 1000000).toFixed(1) + 'M' 
+                : params >= 1000 
+                    ? (params / 1000).toFixed(1) + 'K' 
+                    : params.toString();
+            document.getElementById('model-params').innerText = formatted;
+            console.log(`📊 Model parameters: ${formatted} (${params.toLocaleString()})`);
         }
 
         async function upgradeBrain() {
@@ -548,6 +569,11 @@
                      // Update blockchain height if provided
                      if (result.block_height !== undefined) {
                          document.getElementById('blockchain-height').innerText = result.block_height;
+                         
+                         // Update generation progress
+                         const blocksInCurrentGen = result.block_height % 100;
+                         const nextGen = Math.floor(result.block_height / 100) + 2;
+                         document.getElementById('gen-progress').innerText = `${blocksInCurrentGen}/100 blocks to ${nextGen}${nextGen === 2 ? 'nd' : nextGen === 3 ? 'rd' : 'th'} Gen`;
                      }
                      
                      // Update generation if provided
@@ -715,7 +741,13 @@
                     document.getElementById('active-nodes').innerText = data.active_nodes;
                     
                     // Update blockchain height
-                    document.getElementById('blockchain-height').innerText = data.total_blocks || 0;
+                    const blockHeight = data.total_blocks || 0;
+                    document.getElementById('blockchain-height').innerText = blockHeight;
+                    
+                    // Update generation progress (blocks to next gen)
+                    const blocksInCurrentGen = blockHeight % 100;
+                    const nextGen = Math.floor(blockHeight / 100) + 2;
+                    document.getElementById('gen-progress').innerText = `${blocksInCurrentGen}/100 blocks to ${nextGen}${nextGen === 2 ? 'nd' : nextGen === 3 ? 'rd' : 'th'} Gen`;
                     
                     // [FIX] Update generation from server
                     if (data.generation && data.generation !== currentGeneration) {
