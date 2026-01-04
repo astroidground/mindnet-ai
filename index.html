@@ -907,7 +907,8 @@ NETWORK GROWTH:
                 const saved = localStorage.getItem('p2p_known_peers');
                 if (saved) {
                     const peers = JSON.parse(saved);
-                    peers.forEach(p => knownPeers.add(p));
+                    // Filter out self when loading (myPeerId should be set by now)
+                    peers.filter(p => p !== myPeerId).forEach(p => knownPeers.add(p));
                     console.log(`📂 Loaded ${peers.length} known peers from history`);
                 }
             } catch(e) {
@@ -917,9 +918,17 @@ NETWORK GROWTH:
         
         // Save peer for future connections
         function rememberPeer(peerId) {
+            // Don't remember self
+            if (peerId === myPeerId) {
+                console.warn(`⚠️ Attempted to remember self, skipping`);
+                return;
+            }
+            
             knownPeers.add(peerId);
             try {
-                localStorage.setItem('p2p_known_peers', JSON.stringify([...knownPeers]));
+                // Filter out self before saving
+                const peersToSave = [...knownPeers].filter(p => p !== myPeerId);
+                localStorage.setItem('p2p_known_peers', JSON.stringify(peersToSave));
             } catch(e) {
                 console.error("Failed to save peer:", e);
             }
@@ -1012,8 +1021,41 @@ NETWORK GROWTH:
             });
             
             peer.on('error', (err) => {
-                console.error("PeerJS Error:", err);
-                addLog(`❌ P2P Error: ${err.type}`, "error");
+                console.error("PeerJS Error:", err.type, err.message);
+                
+                // Handle specific error types
+                switch(err.type) {
+                    case 'peer-unavailable':
+                        // Peer is offline or doesn't exist - common, not critical
+                        console.warn(`   Peer unavailable (offline or invalid ID)`);
+                        break;
+                    
+                    case 'network':
+                        // Network connectivity issue
+                        addLog(`⚠️ Network connectivity issue`, "warn");
+                        break;
+                    
+                    case 'server-error':
+                        // PeerJS server issue
+                        addLog(`❌ P2P Server Error: ${err.message}`, "error");
+                        break;
+                    
+                    case 'socket-error':
+                        // WebSocket connection issue
+                        console.warn(`   Socket error: ${err.message}`);
+                        break;
+                    
+                    case 'unavailable-id':
+                        // Peer ID already taken
+                        addLog(`⚠️ Peer ID conflict, regenerating...`, "warn");
+                        // Could regenerate peer ID here if needed
+                        break;
+                    
+                    default:
+                        // Unknown error - log but don't spam user
+                        console.error(`   Unhandled error type: ${err.type}`);
+                        break;
+                }
             });
         }
         
@@ -1022,10 +1064,29 @@ NETWORK GROWTH:
         // ============================================
         
         function connectToPeer(peerId) {
-            if (connections[peerId]) return;
+            // Prevent self-connection
+            if (peerId === myPeerId) {
+                console.warn(`⚠️ Skipping self-connection: ${peerId.substring(0, 8)}`);
+                return;
+            }
             
-            const conn = peer.connect(peerId, { reliable: true });
-            setupConnection(conn);
+            // Prevent duplicate connections
+            if (connections[peerId]) {
+                console.log(`ℹ️ Already connected to ${peerId.substring(0, 8)}`);
+                return;
+            }
+            
+            console.log(`🔗 Attempting connection to ${peerId.substring(0, 8)}...`);
+            
+            try {
+                const conn = peer.connect(peerId, { 
+                    reliable: true,
+                    serialization: 'json'
+                });
+                setupConnection(conn);
+            } catch (e) {
+                console.error(`❌ Failed to initiate connection to ${peerId.substring(0, 8)}:`, e.message);
+            }
         }
         
         function setupConnection(conn) {
@@ -1071,6 +1132,22 @@ NETWORK GROWTH:
                 delete connections[conn.peer];
                 addLog(`❌ Disconnected from ${conn.peer.substring(0, 8)}...`, "warn");
                 updatePeerList();
+            });
+            
+            // 🛡️ Error handling for connection issues
+            conn.on('error', (err) => {
+                console.error(`⚠️ Connection error with ${conn.peer.substring(0, 8)}:`, err.type || err.message);
+                
+                // Clean up failed connection
+                delete connections[conn.peer];
+                updatePeerList();
+                
+                // Only show critical errors to user
+                if (err.type === 'peer-unavailable') {
+                    console.warn(`   Peer ${conn.peer.substring(0, 8)} is offline or unavailable`);
+                } else if (err.type === 'network') {
+                    addLog(`⚠️ Network error with peer ${conn.peer.substring(0, 8)}`, "warn");
+                }
             });
         }
         
