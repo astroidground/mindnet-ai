@@ -244,6 +244,7 @@ NETWORK GROWTH:
                     <p class="text-xs text-gray-400 mb-2">Connected Peers:</p>
                     <div id="peer-list" class="space-y-1 max-h-32 overflow-y-auto terminal-scroll">
                         <p class="text-xs text-gray-500">No peers connected</p>
+                        <p class="text-xs text-cyan-400 mt-2">💡 Tip: Open another tab - Auto-connects!</p>
                 </div>
             </div>
         </div>
@@ -726,6 +727,44 @@ NETWORK GROWTH:
         let peer = null;
         let myPeerId = null;
         let connections = {}; // {peerId: connection}
+        
+        // 🔄 BroadcastChannel for same-browser tab discovery
+        let tabChannel = null;
+        
+        function initTabDiscovery() {
+            try {
+                tabChannel = new BroadcastChannel('genesis-ai-tabs');
+                
+                // Listen for other tabs announcing their Peer IDs
+                tabChannel.onmessage = (event) => {
+                    const { type, peerId, timestamp } = event.data;
+                    
+                    if (type === 'peer_announce' && peerId && peerId !== myPeerId) {
+                        console.log(`📱 Discovered peer in another tab: ${peerId.substring(0, 8)}`);
+                        
+                        // Don't spam connections
+                        if (!connections[peerId]) {
+                            addLog(`📱 Auto-connecting to peer in another tab...`, "info");
+                            setTimeout(() => connectToPeer(peerId), 1000);
+                        }
+                    }
+                };
+                
+                console.log("📱 Tab discovery channel initialized");
+            } catch(e) {
+                console.warn("BroadcastChannel not supported:", e);
+            }
+        }
+        
+        function announceToOtherTabs() {
+            if (tabChannel && myPeerId) {
+                tabChannel.postMessage({
+                    type: 'peer_announce',
+                    peerId: myPeerId,
+                    timestamp: Date.now()
+                });
+            }
+        }
         let networkState = {
             bestLoss: 9.9,
             bestWeights: null,
@@ -1392,6 +1431,9 @@ NETWORK GROWTH:
         // ============================================
         
         function initP2P() {
+            // 📱 Initialize tab discovery (same browser)
+            initTabDiscovery();
+            
             // Try to load saved Peer ID from localStorage
             let savedPeerId = localStorage.getItem('p2p_peer_id');
             
@@ -1426,6 +1468,14 @@ NETWORK GROWTH:
                 
                 // Enable share button
                 document.getElementById('share-btn').disabled = false;
+                
+                // 📱 Announce to other tabs in same browser
+                announceToOtherTabs();
+                
+                // Keep announcing periodically (in case other tabs open later)
+                setInterval(() => {
+                    announceToOtherTabs();
+                }, 5000);
                 
                 // Show shareable URL
                 const shareURL = generateShareURL();
@@ -1607,7 +1657,11 @@ NETWORK GROWTH:
             
             const peerListEl = document.getElementById('peer-list');
             if (connectedCount === 0) {
-                peerListEl.innerHTML = '<p class="text-xs text-gray-500">No peers connected</p>';
+                peerListEl.innerHTML = `
+                    <p class="text-xs text-gray-500">No peers connected</p>
+                    <p class="text-xs text-cyan-400 mt-2">💡 Tip: Open another tab - Auto-connects!</p>
+                    <p class="text-xs text-blue-400 mt-1">Or click "COPY INVITE LINK" to share</p>
+                `;
             } else {
                 peerListEl.innerHTML = Object.keys(connections).map(peerId => 
                     `<div class="flex items-center gap-2 text-xs">
