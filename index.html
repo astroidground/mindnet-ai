@@ -240,7 +240,11 @@ NETWORK GROWTH:
         const MAX_PEERS = 5; // Connect to maximum 5 peers
         const GOSSIP_INTERVAL = 5000; // Broadcast state every 5 seconds
         const TRAINING_DATA_LENGTH = 200; // Length of training text
-        const MINING_REWARD = 10; // GEN tokens per block mined
+        
+        // --- 🎯 개조된 이중 보상 시스템 ---
+        const REWARD_PER_EPOCH = 0.01;   // 공부 1번당 소액 보상 (연산력 기여)
+        const BLOCK_WIN_REWARD = 5.0;    // 지능 향상 성공 시 보너스 (성과 보상)
+        const VALIDATION_THRESHOLD = 0.05; // 검증 오차 허용 범위 (수치 조작 방지)
         
         // --- Wallet & Security ---
         const EC = elliptic.ec;
@@ -358,6 +362,11 @@ NETWORK GROWTH:
                 this.weightsHash = data.weightsHash;
                 this.peerId = data.peerId;
                 this.reward = data.reward || 0;
+                
+                // 🔐 검증용 데이터 포함 (PoV - Proof of Validation)
+                this.weights = data.weights || null;         // 전체 가중치 (검증 가능)
+                this.trainingData = data.trainingData || ""; // 학습 데이터 증거
+                
                 this.hash = this.calculateHash();
             }
             
@@ -387,7 +396,9 @@ NETWORK GROWTH:
                     loss: 9.9,
                     weightsHash: "0000000000000000",
                     peerId: "SYSTEM",
-                    reward: 0
+                    reward: 0,
+                    weights: null,
+                    trainingData: "Genesis Block - The Beginning"
                 });
             }
             
@@ -826,39 +837,110 @@ NETWORK GROWTH:
             }
         }
         
-        function handleNewBlock(peerId, data) {
+        // ============================================
+        // PROOF OF VALIDATION (PoV) - 검증 시스템
+        // ============================================
+        
+        async function verifyLoss(receivedWeights, trainingData, reportedLoss) {
+            try {
+                console.log("🧐 Verifying block: Reported Loss =", reportedLoss);
+                
+                // 1. 임시 검증 모델 생성
+                const tempModel = await createModel();
+                
+                // 2. 상대방이 보낸 가중치를 임시 모델에 적용
+                const tensors = receivedWeights.map(w => tf.tensor(w.data, w.shape));
+                tempModel.setWeights(tensors);
+                
+                // 3. 동일한 데이터로 Loss 재계산
+                const { xs, ys } = processData(trainingData);
+                
+                if (!xs || !ys) {
+                    console.warn("⚠️ Invalid training data for verification");
+                    tensors.forEach(t => t.dispose());
+                    tempModel.dispose();
+                    return false;
+                }
+                
+                const evaluation = tempModel.evaluate(xs, ys);
+                const actualLoss = await evaluation.data();
+                const calculatedLoss = actualLoss[0];
+                
+                // 4. 정리
+                evaluation.dispose();
+                xs.dispose();
+                ys.dispose();
+                tensors.forEach(t => t.dispose());
+                tempModel.dispose();
+                
+                // 5. 검증: 보고된 Loss와 실제 계산된 Loss의 차이가 허용 범위 내인가?
+                const diff = Math.abs(calculatedLoss - reportedLoss);
+                console.log(`📊 Calculated Loss: ${calculatedLoss.toFixed(4)}, Diff: ${diff.toFixed(4)}`);
+                
+                if (diff < VALIDATION_THRESHOLD) {
+                    console.log("✅ Validation PASSED");
+                    return true;
+                } else {
+                    console.warn(`❌ Validation FAILED: Difference ${diff.toFixed(4)} exceeds threshold ${VALIDATION_THRESHOLD}`);
+                    return false;
+                }
+            } catch (e) {
+                console.error("❌ Verification error:", e);
+                return false;
+            }
+        }
+        
+        async function handleNewBlock(peerId, data) {
             const block = Object.assign(new Block(0, 0, "0", {}), data.block);
             const latestBlock = blockchain.getLatestBlock();
             
             if (block.index === latestBlock.index + 1) {
-                // Next block in sequence - VALIDATE IT!
-                if (blockchain.isValidNewBlock(block, latestBlock)) {
-                    // ✅ 검증 성공: 블록체인에 추가
-                    blockchain.chain.push(block);
-                    blockchain.saveChain();
+                addLog(`🧐 Verifying block #${block.index} from ${peerId.substring(0, 8)}...`, "info");
+                
+                // [Step 1] 기본 블록체인 검증 (구조적 무결성)
+                if (!blockchain.isValidNewBlock(block, latestBlock)) {
+                    addLog(`❌ Block #${block.index} rejected: Invalid structure`, "error");
+                    return;
+                }
+                
+                // [Step 2] PoV 검증 (수학적 정확성) - 상대방이 거짓말하는지 확인
+                if (block.weights && block.trainingData) {
+                    const isLossValid = await verifyLoss(block.weights, block.trainingData, block.loss);
                     
-                    // 💰 채굴자에게 보상 인정 (Global Ledger 업데이트)
-                    if (block.reward && block.miner) {
-                        updateGlobalLedger(block.miner, block.reward);
-                        addLog(`💰 Reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
+                    if (!isLossValid) {
+                        addLog(`⚠️ Block #${block.index} rejected: Loss verification FAILED (수치 조작 의심!)`, "error");
+                        // TODO: 악의적 노드를 블랙리스트에 추가
+                        return;
                     }
                     
-                    // UI 업데이트
-                    document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
-                    addLog(`⛓️ Block #${block.index} verified from ${peerId.substring(0, 8)}... (Loss: ${block.loss.toFixed(4)})`, "success");
-                    
-                    // 📡 다른 피어에게 전파 (Gossip Protocol)
-                    Object.keys(connections).forEach(pid => {
-                        if (pid !== peerId) {
-                            sendToPeer(connections[pid], {
-                                type: 'new_block',
-                                block: block
-                            });
-                        }
-                    });
+                    addLog(`✅ PoV passed: Loss is mathematically correct`, "success");
                 } else {
-                    addLog(`❌ Block #${block.index} rejected: Failed validation`, "error");
+                    console.warn("⚠️ Block has no verification data (legacy block?)");
                 }
+                
+                // [Step 3] 모든 검증 통과 → 블록체인에 추가
+                blockchain.chain.push(block);
+                blockchain.saveChain();
+                
+                // 💰 채굴자에게 보상 인정 (Global Ledger 업데이트)
+                if (block.reward && block.miner) {
+                    updateGlobalLedger(block.miner, block.reward);
+                    addLog(`💰 Reward ${block.reward} GEN credited to ${block.miner.substring(0, 8)}...`, "success");
+                }
+                
+                // UI 업데이트
+                document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                addLog(`⛓️ Block #${block.index} accepted (Loss: ${block.loss.toFixed(4)})`, "success");
+                
+                // 📡 다른 피어에게 전파 (Gossip Protocol)
+                Object.keys(connections).forEach(pid => {
+                    if (pid !== peerId) {
+                        sendToPeer(connections[pid], {
+                            type: 'new_block',
+                            block: block
+                        });
+                    }
+                });
             } else if (block.index > latestBlock.index + 1) {
                 // Missing blocks, request full chain
                 addLog(`⚠️ Missing blocks detected, requesting full chain...`, "warn");
@@ -1076,18 +1158,20 @@ NETWORK GROWTH:
                     return;
                 }
                 
-            const history = await model.fit(xs, ys, {
-                epochs: 1,
+                const history = await model.fit(xs, ys, {
+                    epochs: 1,
                     batchSize: 32,
                     shuffle: true,
                     verbose: 0
-            });
-            
-            const loss = history.history.loss[0];
-            
+                });
+                
+                const loss = history.history.loss[0];
+                
                 xs.dispose();
                 ys.dispose();
                 
+                // 📊 [시스템 1] 기여 보상: 공부한 만큼 일단 지급 (연산력 보상)
+                addBalance(REWARD_PER_EPOCH);
                 epochCount++;
                 document.getElementById('epochs').innerText = epochCount;
                 
@@ -1096,44 +1180,41 @@ NETWORK GROWTH:
                 if (lossHistory.length > 10) lossHistory.shift();
                 updateChart();
                 
-                // If we found a better model, broadcast it
+                // 🏆 [시스템 2] 성과 보상: 지능 향상 시 블록 생성 및 보너스
                 if (loss < localBestLoss) {
                     localBestLoss = loss;
                     document.getElementById('local-loss').innerText = loss.toFixed(4);
                     
                     addLog(`🎉 New best local loss: ${loss.toFixed(4)}`, "success");
                     
-                    // Extract and broadcast weights
+                    // Extract weights for verification
                     const weights = model.getWeights().map(w => ({
                         data: Array.from(w.dataSync()),
                         shape: w.shape
                     }));
                     
                     // Calculate weights hash
-                    const weightsHash = weights.map(w => w.data.reduce((a, b) => a + b, 0))
-                        .reduce((a, b) => a + b, 0)
-                        .toString(16)
-                        .substring(0, 16);
+                    const weightsHash = hashWeights(weights);
                     
-                    // Add block to blockchain
+                    // 🔐 Add block to blockchain with FULL verification data
                     const newBlock = blockchain.addBlock({
                         miner: walletAddress,
                         loss: loss,
                         weightsHash: weightsHash,
                         peerId: myPeerId,
-                        reward: MINING_REWARD
+                        weights: weights,              // ✅ 전체 가중치 포함 (검증용)
+                        trainingData: trainingText,    // ✅ 학습 데이터 증거 포함
+                        reward: BLOCK_WIN_REWARD       // 🎁 성과 보상 (5.0 GEN)
                     });
                     
                     if (newBlock) {
                         document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
                         
-                        // Award mining reward
-                        addBalance(MINING_REWARD);
+                        // Award BLOCK WIN reward (not epoch reward)
+                        addBalance(BLOCK_WIN_REWARD);
+                        updateGlobalLedger(walletAddress, BLOCK_WIN_REWARD);
                         
-                        // Update global ledger (내 채굴 기록)
-                        updateGlobalLedger(walletAddress, MINING_REWARD);
-                        
-                        addLog(`⛓️ Block #${newBlock.index} mined! 💰 +${MINING_REWARD} GEN`, "success");
+                        addLog(`⛏️ Block #${newBlock.index} mined! 지능 향상 보너스 💰 +${BLOCK_WIN_REWARD} GEN`, "success");
                     }
                     
                     broadcastToNetwork({
