@@ -208,6 +208,14 @@ NETWORK GROWTH:
                     </div>
                     </div>
             
+            <!-- Data Sources Performance -->
+            <div class="neon-border p-4 bg-black bg-opacity-50">
+                <h2 class="text-lg neon-text mb-2">🍽️ DATA SOURCES (Autonomous Foraging)</h2>
+                <div id="data-sources" class="text-xs space-y-1">
+                    <div class="text-gray-500">Initializing...</div>
+                </div>
+            </div>
+            
             <!-- P2P Activity Feed -->
             <div class="neon-border p-4 bg-black bg-opacity-50 flex flex-col">
                 <h2 class="text-lg neon-text mb-2">📡 P2P ACTIVITY LOG</h2>
@@ -1609,11 +1617,94 @@ NETWORK GROWTH:
         let lastFetchTime = 0;
         const FETCH_INTERVAL = 5000; // 5초마다 새로운 데이터 (빠른 다양성)
         
+        // ============================================
+        // AUTONOMOUS DATA FORAGING - Multi-Source Intelligence
+        // ============================================
+        
+        const DATA_SOURCES = {
+            WIKIPEDIA: {
+                name: 'Wikipedia',
+                icon: '📚',
+                priority: 1.0,
+                successRate: 1.0,
+                lastLoss: 9.9,
+                fetcher: fetchWikipediaData
+            },
+            HACKERNEWS: {
+                name: 'Hacker News',
+                icon: '🔶',
+                priority: 1.0,
+                successRate: 1.0,
+                lastLoss: 9.9,
+                fetcher: fetchHackerNewsData
+            },
+            REDDIT: {
+                name: 'Reddit',
+                icon: '🤖',
+                priority: 1.0,
+                successRate: 1.0,
+                lastLoss: 9.9,
+                fetcher: fetchRedditData
+            },
+            ARXIV: {
+                name: 'arXiv Papers',
+                icon: '🔬',
+                priority: 1.0,
+                successRate: 1.0,
+                lastLoss: 9.9,
+                fetcher: fetchArxivData
+            }
+        };
+        
+        let currentDataSource = 'WIKIPEDIA';
+        let dataSourceStats = {...DATA_SOURCES};
+        
+        // 🎯 Autonomous Source Selection based on Loss
+        function selectOptimalDataSource() {
+            // If current loss is high (> 2.0), switch to better performing source
+            if (localBestLoss > 2.0) {
+                // Sort sources by performance (low loss = high priority)
+                const sortedSources = Object.entries(dataSourceStats)
+                    .sort((a, b) => {
+                        // Score = successRate / lastLoss (higher is better)
+                        const scoreA = a[1].successRate / (a[1].lastLoss + 0.1);
+                        const scoreB = b[1].successRate / (b[1].lastLoss + 0.1);
+                        return scoreB - scoreA;
+                    });
+                
+                const bestSource = sortedSources[0][0];
+                
+                if (bestSource !== currentDataSource) {
+                    console.log(`🔄 Switching data source: ${currentDataSource} -> ${bestSource}`);
+                    console.log(`   Reason: High loss detected (${localBestLoss.toFixed(3)})`);
+                    addLog(`🔄 Switching to ${dataSourceStats[bestSource].icon} ${dataSourceStats[bestSource].name}`, "info");
+                    currentDataSource = bestSource;
+                }
+            }
+            
+            // Random exploration (10% chance) to discover new good sources
+            if (Math.random() < 0.1) {
+                const sources = Object.keys(dataSourceStats);
+                currentDataSource = sources[Math.floor(Math.random() * sources.length)];
+                console.log(`🎲 Random exploration: ${currentDataSource}`);
+            }
+            
+            return currentDataSource;
+        }
+        
+        // Update source performance based on training results
+        function updateSourcePerformance(source, loss, success) {
+            if (dataSourceStats[source]) {
+                dataSourceStats[source].lastLoss = loss;
+                dataSourceStats[source].successRate = 
+                    dataSourceStats[source].successRate * 0.9 + (success ? 0.1 : 0);
+            }
+        }
+        
+        // 📚 Wikipedia API
         async function fetchWikipediaData() {
             try {
-                // 🎲 Method 1: 완전 랜덤 페이지 (Wikipedia Random API)
                 const randomUrl = 'https://en.wikipedia.org/api/rest_v1/page/random/summary';
-                
                 const response = await fetch(randomUrl);
                 if (!response.ok) throw new Error("Wikipedia fetch failed");
                 
@@ -1622,21 +1713,139 @@ NETWORK GROWTH:
                 const title = data.title || "Unknown";
                 
                 if (text.length > 100) {
-                    // Show what we're learning
-                    const preview = text.substring(0, 200) + "...";
-                    document.getElementById('learning-preview').innerHTML = 
-                        `<div class="text-yellow-400 font-bold mb-1">📚 ${title}</div>` +
-                        `<div class="text-gray-300">${preview}</div>`;
-                    
-                    addLog(`📚 Learning: ${title}`, "info");
-                    console.log(`📖 New topic: ${title} (${text.length} chars)`);
-                    return text;
+                    displayLearningContent('📚', 'Wikipedia', title, text);
+                    return {text, title, source: 'WIKIPEDIA'};
                 }
             } catch (e) {
-                console.warn("Wikipedia fetch error:", e);
+                console.warn("Wikipedia error:", e);
+            }
+            return null;
+        }
+        
+        // 🔶 Hacker News API (Top Stories)
+        async function fetchHackerNewsData() {
+            try {
+                const topStoriesUrl = 'https://hacker-news.firebaseio.com/v0/topstories.json';
+                const storiesRes = await fetch(topStoriesUrl);
+                const storyIds = await storiesRes.json();
+                
+                // Get random story from top 30
+                const randomId = storyIds[Math.floor(Math.random() * Math.min(30, storyIds.length))];
+                const storyUrl = `https://hacker-news.firebaseio.com/v0/item/${randomId}.json`;
+                const storyRes = await fetch(storyUrl);
+                const story = await storyRes.json();
+                
+                const title = story.title || "Unknown";
+                const text = story.text || story.title || "";
+                
+                if (text.length > 50) {
+                    displayLearningContent('🔶', 'Hacker News', title, text);
+                    return {text, title, source: 'HACKERNEWS'};
+                }
+            } catch (e) {
+                console.warn("Hacker News error:", e);
+            }
+            return null;
+        }
+        
+        // 🤖 Reddit RSS Feed (r/science, r/technology, r/philosophy)
+        async function fetchRedditData() {
+            try {
+                const subreddits = ['science', 'technology', 'philosophy', 'MachineLearning', 'programming'];
+                const sub = subreddits[Math.floor(Math.random() * subreddits.length)];
+                
+                // Reddit JSON API (no auth needed for public posts)
+                const url = `https://www.reddit.com/r/${sub}/hot.json?limit=10`;
+                const response = await fetch(url, {
+                    headers: {'User-Agent': 'GenesisAI/1.0'}
+                });
+                
+                if (!response.ok) throw new Error("Reddit fetch failed");
+                
+                const data = await response.json();
+                const posts = data.data.children;
+                
+                if (posts && posts.length > 0) {
+                    const randomPost = posts[Math.floor(Math.random() * posts.length)].data;
+                    const title = randomPost.title || "Unknown";
+                    const text = (randomPost.selftext || randomPost.title || "").substring(0, 1000);
+                    
+                    if (text.length > 50) {
+                        displayLearningContent('🤖', `Reddit r/${sub}`, title, text);
+                        return {text, title, source: 'REDDIT'};
+                    }
+                }
+            } catch (e) {
+                console.warn("Reddit error:", e);
+            }
+            return null;
+        }
+        
+        // 🔬 arXiv API (Scientific Papers)
+        async function fetchArxivData() {
+            try {
+                // Random search query from AI/CS topics
+                const topics = ['machine+learning', 'neural+networks', 'deep+learning', 'artificial+intelligence', 'computer+science'];
+                const topic = topics[Math.floor(Math.random() * topics.length)];
+                
+                const url = `https://export.arxiv.org/api/query?search_query=all:${topic}&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending`;
+                const response = await fetch(url);
+                const xmlText = await response.text();
+                
+                // Simple XML parsing for entry content
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                const entries = xmlDoc.getElementsByTagName("entry");
+                
+                if (entries.length > 0) {
+                    const randomEntry = entries[Math.floor(Math.random() * entries.length)];
+                    const title = randomEntry.getElementsByTagName("title")[0]?.textContent || "Unknown";
+                    const summary = randomEntry.getElementsByTagName("summary")[0]?.textContent || "";
+                    const text = summary.trim();
+                    
+                    if (text.length > 100) {
+                        displayLearningContent('🔬', 'arXiv', title, text);
+                        return {text, title, source: 'ARXIV'};
+                    }
+                }
+            } catch (e) {
+                console.warn("arXiv error:", e);
+            }
+            return null;
+        }
+        
+        // Display what we're learning
+        function displayLearningContent(icon, source, title, text) {
+            const preview = text.substring(0, 200) + (text.length > 200 ? "..." : "");
+            document.getElementById('learning-preview').innerHTML = 
+                `<div class="text-yellow-400 font-bold mb-1">${icon} ${source}: ${title}</div>` +
+                `<div class="text-gray-300 text-sm">${preview}</div>`;
+            
+            addLog(`${icon} Learning from ${source}`, "info");
+            console.log(`📖 Source: ${source} | Topic: ${title} (${text.length} chars)`);
+        }
+        
+        // 🧠 Intelligent Data Fetcher with Auto-Selection
+        async function fetchIntelligentData() {
+            // Select optimal source based on performance
+            const sourceKey = selectOptimalDataSource();
+            const source = dataSourceStats[sourceKey];
+            
+            try {
+                const result = await source.fetcher();
+                
+                if (result && result.text) {
+                    updateSourcePerformance(sourceKey, localBestLoss, true);
+                    return result.text;
+                } else {
+                    updateSourcePerformance(sourceKey, 9.9, false);
+                }
+            } catch (e) {
+                console.warn(`${source.name} failed:`, e);
+                updateSourcePerformance(sourceKey, 9.9, false);
             }
             
-            // Fallback: 다양한 기본 텍스트들
+            // Fallback: High-quality seed texts
             const fallbacks = [
                 "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.",
                 "The universe contains billions of galaxies, each with billions of stars and potentially countless planets.",
@@ -1653,9 +1862,9 @@ NETWORK GROWTH:
         async function generateTrainingData() {
             const now = Date.now();
             
-            // 5초마다 새로운 Wikipedia 페이지 (다양성 극대화!)
+            // 🔄 Fetch from intelligent multi-source system
             if (!cachedWikiText || (now - lastFetchTime > FETCH_INTERVAL)) {
-                cachedWikiText = await fetchWikipediaData();
+                cachedWikiText = await fetchIntelligentData();
                 lastFetchTime = now;
             }
             
@@ -1713,6 +1922,9 @@ NETWORK GROWTH:
                 xs.dispose();
                 ys.dispose();
                 
+                // 📊 Update data source performance based on loss
+                updateSourcePerformance(currentDataSource, loss, loss < 5.0);
+                
                 // 📊 [System 1] Contribution reward: Pay for computation work (Computing power reward)
                 addBalance(REWARD_PER_EPOCH);
                 epochCount++;
@@ -1727,6 +1939,7 @@ NETWORK GROWTH:
                 lossHistory.push(loss);
                 if (lossHistory.length > 10) lossHistory.shift();
                 updateChart();
+                updateDataSourcesUI(); // Update data source performance display
                 
                 // 🏆 [System 2] Performance reward: Create block and get bonus when intelligence improves
                 if (loss < localBestLoss) {
@@ -1932,6 +2145,44 @@ NETWORK GROWTH:
             lossChart.update('none');
         }
         
+        // Update Data Sources UI
+        function updateDataSourcesUI() {
+            const sourcesDiv = document.getElementById('data-sources');
+            if (!sourcesDiv) return;
+            
+            let html = '';
+            
+            // Sort by performance score
+            const sortedSources = Object.entries(dataSourceStats)
+                .sort((a, b) => {
+                    const scoreA = a[1].successRate / (a[1].lastLoss + 0.1);
+                    const scoreB = b[1].successRate / (b[1].lastLoss + 0.1);
+                    return scoreB - scoreA;
+                });
+            
+            for (const [key, source] of sortedSources) {
+                const isActive = key === currentDataSource;
+                const performanceScore = ((source.successRate / (source.lastLoss + 0.1)) * 100).toFixed(0);
+                
+                html += `
+                    <div class="flex items-center justify-between p-2 bg-gray-900 bg-opacity-50 rounded ${isActive ? 'border border-yellow-400' : ''}">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-lg">${source.icon}</span>
+                            <span class="${isActive ? 'text-yellow-400 font-bold' : 'text-gray-300'}">${source.name}</span>
+                            ${isActive ? '<span class="text-green-400 text-xs">● ACTIVE</span>' : ''}
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <span class="text-gray-400 text-xs">Loss: ${source.lastLoss.toFixed(2)}</span>
+                            <span class="text-gray-400 text-xs">Success: ${(source.successRate * 100).toFixed(0)}%</span>
+                            <span class="text-blue-400 text-xs font-bold">Score: ${performanceScore}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            sourcesDiv.innerHTML = html;
+        }
+        
         // ============================================
         // AI INFERENCE
         // ============================================
@@ -2067,8 +2318,9 @@ NETWORK GROWTH:
         loadBalance();        // 1. Load balance first
         initGlobalLedger();   // 2. Initialize global ledger
         initChart();          // 3. Initialize chart
-        initIPFS();           // 4. Initialize IPFS (Decentralized storage)
-        initP2P();            // 5. Initialize P2P network
+        updateDataSourcesUI(); // 4. Initialize data sources display
+        initIPFS();           // 5. Initialize IPFS (Decentralized storage)
+        initP2P();            // 6. Initialize P2P network
         
         // Periodic gossip
         setInterval(() => {
@@ -2081,6 +2333,11 @@ NETWORK GROWTH:
                 });
             }
         }, GOSSIP_INTERVAL);
+        
+        // Periodic data source UI update
+        setInterval(() => {
+            updateDataSourcesUI();
+        }, 5000); // Update every 5 seconds
         
         addLog("🚀 Pure P2P Genesis AI initialized", "success");
         addLog("⚡ Zero servers - No Firebase - Fully decentralized!", "info");
