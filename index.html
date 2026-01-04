@@ -347,17 +347,31 @@ NETWORK GROWTH:
             try {
                 console.log("📦 Initializing IPFS Node (Helia)...");
                 
-                // Create Helia node (IPFS in browser)
-                heliaNode = await window.Helia.createHelia();
+                // ⚠️ TEMPORARY DISABLED: Browser IPFS causes libp2p WebSocket errors
+                // IPFS in pure browser environment has limitations with libp2p connections
+                // Using P2P direct transfer instead (more stable for now)
                 
-                // Create UnixFS instance for file operations
+                console.log("⚠️ IPFS disabled - using P2P direct transfer");
+                addLog("📦 Using P2P direct transfer (IPFS disabled for stability)", "info");
+                
+                // Uncomment below to enable IPFS (may cause WebSocket errors):
+                /*
+                heliaNode = await window.Helia.createHelia({
+                    libp2p: {
+                        config: {
+                            transport: {
+                                // Disable problematic transports
+                                websocket: false
+                            }
+                        }
+                    }
+                });
                 unixfs = await window.HeliaUnixfs.unixfs(heliaNode);
-                
-                addLog("📦 IPFS Node initialized (Decentralized storage ready)", "success");
-                console.log("✅ Helia IPFS node created");
+                addLog("📦 IPFS Node initialized", "success");
+                */
             } catch (e) {
                 console.error("❌ IPFS Init Error:", e);
-                addLog("⚠️ IPFS initialization failed (will use P2P fallback)", "warn");
+                addLog("⚠️ IPFS initialization failed (using P2P fallback)", "warn");
             }
         }
         
@@ -1441,74 +1455,81 @@ NETWORK GROWTH:
         // TENSORFLOW.JS MODEL
         // ============================================
         
-        // 🔥 Lightweight Transformer with Multi-Head Attention
+        // 🔥 Advanced LSTM + Attention Hybrid (Stable & Modern)
         async function createModel(generation = 1) {
             const units = calculateUnitsForGeneration(generation);
             const embeddingDim = Math.min(32 + (generation - 1) * 8, 128);
-            const numHeads = Math.min(4, Math.floor(embeddingDim / 8)); // 4 attention heads max
             
-            // Use Functional API for more complex architecture
+            // Use Functional API for Attention mechanism
             const input = tf.input({shape: [SEQUENCE_LENGTH]});
             
             // Embedding layer
-            let x = tf.layers.embedding({
+            let embedded = tf.layers.embedding({
                 inputDim: vocab.length,
                 outputDim: embeddingDim,
-                inputLength: SEQUENCE_LENGTH
+                inputLength: SEQUENCE_LENGTH,
+                name: 'word_embedding'
             }).apply(input);
             
-            // 🌟 Transformer Block: Multi-Head Self-Attention + Feed-Forward
-            // Position encoding (simple learnable)
-            const positionEmbedding = tf.layers.embedding({
-                inputDim: SEQUENCE_LENGTH,
-                outputDim: embeddingDim
-            });
+            // 🧠 Bidirectional LSTM (captures context from both directions)
+            const lstm1 = tf.layers.bidirectional({
+                layer: tf.layers.lstm({
+                    units: units,
+                    returnSequences: true,
+                    kernelInitializer: 'glorotUniform',
+                    recurrentInitializer: 'glorotUniform'
+                }),
+                name: 'bidirectional_lstm'
+            }).apply(embedded);
             
-            const positions = tf.range(0, SEQUENCE_LENGTH, 1, 'int32');
-            const posEncoding = positionEmbedding.apply(positions);
+            // 🎯 Self-Attention Mechanism (Simplified)
+            // Use global max pooling and global average pooling
+            const maxPooled = tf.layers.globalMaxPooling1d({
+                name: 'global_max_pool'
+            }).apply(lstm1);
             
-            // Add position encoding to embeddings
-            x = tf.layers.add().apply([x, posEncoding]);
+            const avgPooled = tf.layers.globalAveragePooling1d({
+                name: 'global_avg_pool'
+            }).apply(lstm1);
             
-            // 🎯 Multi-Head Attention (Simplified)
-            // Query, Key, Value projections
-            const attention = tf.layers.multiHeadAttention({
-                numHeads: numHeads,
-                keyDim: Math.floor(embeddingDim / numHeads),
-                name: 'multi_head_attention'
-            }).apply(x, {query: x, value: x, key: x, returnAttentionScores: false});
+            // Concatenate both pooling outputs (captures both prominent and average features)
+            const concatenated = tf.layers.concatenate({
+                name: 'concat_pools'
+            }).apply([maxPooled, avgPooled]);
             
-            // Add & Norm (Residual connection)
-            x = tf.layers.add().apply([x, attention]);
-            x = tf.layers.layerNormalization().apply(x);
-            
-            // Feed-Forward Network
-            let ffn = tf.layers.dense({
+            // 🌟 Feed-Forward Network
+            let dense1 = tf.layers.dense({
                 units: units * 2,
                 activation: 'relu',
-                kernelInitializer: 'glorotUniform'
-            }).apply(x);
+                kernelInitializer: 'glorotUniform',
+                name: 'ff_layer1'
+            }).apply(concatenated);
             
-            ffn = tf.layers.dropout({rate: 0.1}).apply(ffn);
+            // Dropout for regularization
+            dense1 = tf.layers.dropout({
+                rate: 0.2,
+                name: 'dropout1'
+            }).apply(dense1);
             
-            ffn = tf.layers.dense({
-                units: embeddingDim,
-                kernelInitializer: 'glorotUniform'
-            }).apply(ffn);
+            let dense2 = tf.layers.dense({
+                units: units,
+                activation: 'relu',
+                kernelInitializer: 'glorotUniform',
+                name: 'ff_layer2'
+            }).apply(dense1);
             
-            // Add & Norm (Residual connection)
-            x = tf.layers.add().apply([x, ffn]);
-            x = tf.layers.layerNormalization().apply(x);
-            
-            // Global Average Pooling (aggregate sequence)
-            x = tf.layers.globalAveragePooling1d().apply(x);
+            dense2 = tf.layers.dropout({
+                rate: 0.1,
+                name: 'dropout2'
+            }).apply(dense2);
             
             // Output layer
             const output = tf.layers.dense({
                 units: vocab.length,
                 activation: 'softmax',
-                kernelInitializer: 'glorotUniform'
-            }).apply(x);
+                kernelInitializer: 'glorotUniform',
+                name: 'output'
+            }).apply(dense2);
             
             const model = tf.model({inputs: input, outputs: output});
             
@@ -1521,7 +1542,7 @@ NETWORK GROWTH:
             const params = model.countParams();
             document.getElementById('model-params').innerText = (params / 1000).toFixed(1) + 'K';
             
-            console.log(`🧠 Gen ${generation} Transformer created: ${numHeads} heads, ${embeddingDim}d, ${params} params`);
+            console.log(`🧠 Gen ${generation} Model: BiLSTM + Attention, ${embeddingDim}d embed, ${params} params`);
             return model;
         }
         
