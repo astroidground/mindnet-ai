@@ -221,16 +221,27 @@ NETWORK GROWTH:
                     📋 COPY INVITE LINK
                 </button>
                 
+                <!-- Quick Connect Instructions -->
+                <div class="mb-3 p-2 bg-yellow-900 bg-opacity-20 border border-yellow-700 rounded text-xs">
+                    <p class="text-yellow-300 font-bold mb-1">🔗 To Connect Two Tabs:</p>
+                    <p class="text-yellow-200 text-xs">
+                        1. Copy your Peer ID (click below)<br>
+                        2. Open new tab at same URL<br>
+                        3. Paste Peer ID in Manual Connect<br>
+                        4. Click Connect
+                    </p>
+                </div>
+                
                 <!-- Manual Connect -->
-                <details class="mb-3">
-                    <summary class="text-xs text-cyan-400 cursor-pointer hover:text-cyan-300">
-                        🔗 Manual Connect (if auto-connect fails)
+                <details class="mb-3" open>
+                    <summary class="text-xs text-cyan-400 cursor-pointer hover:text-cyan-300 font-bold">
+                        🔗 Manual Connect
                     </summary>
-                    <div class="mt-2 p-2 bg-gray-900 rounded">
-                        <input type="text" id="manual-peer-id" placeholder="Paste Peer ID here..." 
-                               class="w-full text-xs p-1 bg-black border border-gray-700 text-white mb-1">
-                        <button id="manual-connect-btn" class="w-full text-xs py-1 bg-green-800 hover:bg-green-700 text-white">
-                            Connect
+                    <div class="mt-2 p-2 bg-gray-900 rounded border border-cyan-800">
+                        <input type="text" id="manual-peer-id" placeholder="Paste Peer ID from other tab..." 
+                               class="w-full text-xs p-2 bg-black border border-gray-700 text-white mb-2 font-mono">
+                        <button id="manual-connect-btn" class="w-full text-xs py-2 bg-green-800 hover:bg-green-700 text-white font-bold border border-green-600">
+                            ✅ Connect
                         </button>
                     </div>
                 </details>
@@ -259,8 +270,7 @@ NETWORK GROWTH:
                 <div class="mt-4 pt-4 border-t border-gray-700">
                     <p class="text-xs text-gray-400 mb-2">Connected Peers:</p>
                     <div id="peer-list" class="space-y-1 max-h-32 overflow-y-auto terminal-scroll">
-                        <p class="text-xs text-gray-500">No peers connected</p>
-                        <p class="text-xs text-cyan-400 mt-2">💡 Tip: Open another tab - Auto-connects!</p>
+                        <!-- Will be populated by updatePeerList() -->
                 </div>
             </div>
             
@@ -1198,9 +1208,24 @@ NETWORK GROWTH:
             
             saveChain() {
                 try {
-                    localStorage.setItem('p2p_blockchain', JSON.stringify(this.chain));
+                    const data = JSON.stringify(this.chain);
+                    localStorage.setItem('p2p_blockchain', data);
+                    console.log(`💾 Blockchain saved: ${this.chain.length} blocks`);
                 } catch(e) {
-                    console.error("Failed to save blockchain:", e);
+                    if (e.name === 'QuotaExceededError') {
+                        console.error("❌ Cannot save blockchain: Storage full!");
+                        console.log("⚠️ Blockchain height:", this.chain.length);
+                        console.log("💡 Run 'Clear Cache' to free space");
+                        
+                        // Try to at least save the height
+                        try {
+                            localStorage.setItem('p2p_blockchain_height', this.chain.length.toString());
+                        } catch(e2) {
+                            console.error("Cannot even save height:", e2);
+                        }
+                    } else {
+                        console.error("Failed to save blockchain:", e);
+                    }
                 }
             }
             
@@ -1209,11 +1234,16 @@ NETWORK GROWTH:
                     const saved = localStorage.getItem('p2p_blockchain');
                     if (saved) {
                         const chain = JSON.parse(saved);
-                        console.log(`📂 Loaded blockchain: ${chain.length} blocks`);
+                        const height = chain.length - 1;
+                        const generation = getGenerationFromBlockHeight(height);
+                        console.log(`📂 Loaded blockchain: ${chain.length} blocks (Height: ${height}, Gen: ${generation})`);
                         return chain;
+                    } else {
+                        console.log("ℹ️ No saved blockchain found, starting from Genesis");
                     }
                 } catch(e) {
-                    console.error("Failed to load blockchain:", e);
+                    console.error("❌ Failed to load blockchain:", e);
+                    console.log("⚠️ Starting fresh blockchain");
                 }
                 return null;
             }
@@ -1239,8 +1269,22 @@ NETWORK GROWTH:
         // Initialize blockchain
         let blockchain = new Blockchain();
         
-        // Update UI
-        document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+        // Update UI and show initial state
+        const initialHeight = blockchain.getBlockchainHeight();
+        const initialGeneration = getGenerationFromBlockHeight(initialHeight);
+        document.getElementById('blocks-received').innerText = initialHeight;
+        
+        const genText = ['1st', '2nd', '3rd'];
+        const genSuffix = initialGeneration <= 3 ? genText[initialGeneration - 1] : `${initialGeneration}th`;
+        document.getElementById('network-gen-value').innerText = `${genSuffix} Gen`;
+        
+        console.log(`⛓️ Initial blockchain: ${blockchain.chain.length} blocks, Height: ${initialHeight}, Generation: ${initialGeneration}`);
+        
+        if (initialHeight === 0) {
+            addLog("🆕 Starting fresh blockchain (no saved data)", "info");
+        } else {
+            addLog(`✅ Loaded blockchain: Height ${initialHeight}, Generation ${initialGeneration}`, "success");
+        }
         
         // --- AI Model ---
         let model = null;
@@ -1786,15 +1830,22 @@ NETWORK GROWTH:
             const peerListEl = document.getElementById('peer-list');
             if (connectedCount === 0) {
                 peerListEl.innerHTML = `
-                    <p class="text-xs text-gray-500">No peers connected</p>
-                    <p class="text-xs text-cyan-400 mt-2">💡 Tip: Open another tab - Auto-connects!</p>
-                    <p class="text-xs text-blue-400 mt-1">Or click "COPY INVITE LINK" to share</p>
+                    <div class="p-3 bg-red-900 bg-opacity-20 border border-red-700 rounded">
+                        <p class="text-red-300 font-bold mb-2">⚠️ No peers connected</p>
+                        <p class="text-xs text-gray-300 mb-2">To connect two tabs:</p>
+                        <ol class="text-xs text-gray-300 list-decimal ml-4 space-y-1">
+                            <li>Click "My Peer ID" below to copy</li>
+                            <li>Open new tab (Ctrl+T)</li>
+                            <li>Paste in "Manual Connect"</li>
+                            <li>Click Connect</li>
+                        </ol>
+                    </div>
                 `;
             } else {
                 peerListEl.innerHTML = Object.keys(connections).map(peerId => 
                     `<div class="flex items-center gap-2 text-xs">
-                        <div class="w-2 h-2 rounded-full bg-green-500 peer-node"></div>
-                        <span class="font-mono">${peerId.substring(0, 12)}...</span>
+                        <div class="w-2 h-2 rounded-full bg-green-500 peer-node animate-pulse"></div>
+                        <span class="font-mono text-green-300">${peerId.substring(0, 16)}...</span>
                     </div>`
                 ).join('');
             }
@@ -2938,28 +2989,36 @@ NETWORK GROWTH:
         function cleanupLocalStorage() {
             console.log("🧹 Cleaning up localStorage...");
             
-            // Remove old/unnecessary items
+            // Check what's taking up space
             const itemsToCheck = [
-                'p2p_blockchain', // Can be re-synced from network
-                'genesis_active_tabs', // Can be regenerated
-                'p2p_collab_stats' // Not critical
+                'p2p_blockchain',
+                'genesis_active_tabs',
+                'p2p_collab_stats',
+                'p2p_best_weights'
             ];
             
+            let totalSize = 0;
             itemsToCheck.forEach(key => {
                 const item = localStorage.getItem(key);
                 if (item) {
                     const sizeKB = (item.length / 1024).toFixed(2);
+                    totalSize += item.length;
                     console.log(`  - ${key}: ${sizeKB} KB`);
                 }
             });
             
-            // Remove blockchain (can re-sync from peers)
-            localStorage.removeItem('p2p_blockchain');
-            console.log("  ✅ Removed blockchain (will re-sync from network)");
+            console.log(`  Total checked: ${(totalSize / 1024).toFixed(2)} KB`);
             
-            // Clear active tabs list
+            // Only remove non-critical items
+            // ⚠️ KEEP blockchain to preserve generation!
             localStorage.removeItem('genesis_active_tabs');
             console.log("  ✅ Cleared active tabs list");
+            
+            localStorage.removeItem('p2p_collab_stats');
+            console.log("  ✅ Cleared collaboration stats");
+            
+            // DON'T remove blockchain unless absolutely necessary
+            console.log("  ⚠️ Keeping blockchain to preserve generation");
         }
         
         function loadWeightsFromStorage() {
