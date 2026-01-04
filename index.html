@@ -187,15 +187,18 @@
         function initWallet() {
             const savedPrivKey = localStorage.getItem('genesis_priv_key');
             if (savedPrivKey) {
-                console.log("🔐 Wallet loaded from local storage.");
+                console.log("🔐 Wallet loaded from local storage:", savedPrivKey.substring(0, 16) + "...");
                 keyPair = ec.keyFromPrivate(savedPrivKey);
             } else {
                 console.log("🆕 Generating new wallet...");
                 keyPair = ec.genKeyPair();
-                localStorage.setItem('genesis_priv_key', keyPair.getPrivate('hex'));
+                const privHex = keyPair.getPrivate('hex');
+                localStorage.setItem('genesis_priv_key', privHex);
+                console.log("💾 Saved new wallet to localStorage:", privHex.substring(0, 16) + "...");
             }
             privateKey = keyPair.getPrivate('hex');
             publicKey = keyPair.getPublic('hex');
+            console.log("👛 Wallet Address:", "GEN_" + publicKey.substring(0, 16).toUpperCase());
         }
         initWallet();
         
@@ -469,6 +472,13 @@
                 if (!jobRes.ok) throw new Error("Server offline");
                 const job = await jobRes.json();
                 
+                // [FIX] Sync generation from server to UI
+                if (job.generation && job.generation !== currentGeneration) {
+                    currentGeneration = job.generation;
+                    document.getElementById('brain-gen').innerText = `${currentGeneration}${currentGeneration === 1 ? 'st' : currentGeneration === 2 ? 'nd' : currentGeneration === 3 ? 'rd' : 'th'} Gen`;
+                    console.log(`🔄 Synced to server generation: ${currentGeneration}`);
+                }
+                
                 // 2. Prepare Data
                 const { xs, ys } = processData(job.data);
                 
@@ -696,6 +706,24 @@
         // Update stats every 10 seconds
         setInterval(updateNetworkStats, 10000);
         updateNetworkStats(); // Initial call
+
+        // --- Fetch Balance from Server ---
+        async function syncBalanceFromServer() {
+            try {
+                const res = await fetch(`${API_URL}/balance/${walletAddress}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    _secureBalance = data.balance;
+                    document.getElementById('balance').innerText = _secureBalance.toFixed(2);
+                    console.log(`💰 Balance synced from server: ${_secureBalance} GEN`);
+                }
+            } catch (e) {
+                console.warn("Failed to sync balance from server:", e);
+            }
+        }
+        
+        // Sync balance on page load
+        syncBalanceFromServer();
 
         // --- 5. Init ---
         document.getElementById('mine-btn').addEventListener('click', async () => {
