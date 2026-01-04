@@ -177,6 +177,14 @@ NETWORK GROWTH:
                         <span class="text-gray-400">💎 Total GEN Mined</span>
                         <span id="total-mined" class="font-bold text-yellow-400">0</span>
                     </div>
+                    <div class="flex justify-between border-t border-gray-700 pt-2 mt-2">
+                        <span class="text-gray-400">🧬 Brain Generation</span>
+                        <span id="brain-generation" class="font-bold text-green-400">1st Gen</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">📈 Next Evolution</span>
+                        <span id="evolution-progress" class="font-bold text-gray-400">0/10 blocks</span>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -536,6 +544,18 @@ NETWORK GROWTH:
         let epochCount = 0;
         let localBestLoss = 9.9;
         let lossHistory = [];
+        
+        // --- Evolution System ---
+        let currentGeneration = 1;
+        const EVOLUTION_INTERVAL = 10; // 블록 10개마다 진화
+        
+        function getGenerationFromBlockHeight(blockHeight) {
+            return Math.floor(blockHeight / EVOLUTION_INTERVAL) + 1;
+        }
+        
+        function calculateUnitsForGeneration(gen) {
+            return 32 + (gen - 1) * 16; // Gen 1: 32, Gen 2: 48, Gen 3: 64, Gen 4: 80...
+        }
         
         // --- Chart ---
         let lossChart = null;
@@ -1027,23 +1047,29 @@ NETWORK GROWTH:
         // TENSORFLOW.JS MODEL
         // ============================================
         
-        async function createModel() {
+        async function createModel(generation = 1) {
+            const units = calculateUnitsForGeneration(generation);
+            const embeddingDim = Math.min(32 + (generation - 1) * 8, 128); // 점진적으로 증가
+            
             const model = tf.sequential();
             
             model.add(tf.layers.embedding({
                 inputDim: vocab.length,
-                outputDim: 32,
+                outputDim: embeddingDim,
                 inputLength: SEQUENCE_LENGTH
             }));
             
             model.add(tf.layers.lstm({
-                units: 32,
-                returnSequences: false
+                units: units,
+                returnSequences: false,
+                kernelInitializer: 'glorotUniform',
+                recurrentInitializer: 'glorotUniform'
             }));
             
             model.add(tf.layers.dense({
                 units: vocab.length,
-                activation: 'softmax'
+                activation: 'softmax',
+                kernelInitializer: 'glorotUniform'
             }));
             
             model.compile({
@@ -1054,8 +1080,64 @@ NETWORK GROWTH:
             const params = model.countParams();
             document.getElementById('model-params').innerText = (params / 1000).toFixed(1) + 'K';
             
-            console.log("🧠 Model created:", params, "parameters");
+            console.log(`🧠 Generation ${generation} Model created: ${units} units, ${params} parameters`);
             return model;
+        }
+        
+        // 🧬 Knowledge Transfer: 이전 세대의 지식을 새 세대로 전승
+        async function upgradeBrain(oldModel, newGeneration) {
+            console.log(`🧬 Evolving to Generation ${newGeneration}...`);
+            
+            const newModel = await createModel(newGeneration);
+            
+            if (!oldModel) {
+                console.log("🆕 First generation, no knowledge to transfer");
+                return newModel;
+            }
+            
+            try {
+                const oldWeights = oldModel.getWeights();
+                const newWeights = newModel.getWeights();
+                
+                // 가중치 전송: 겹치는 부분만 복사 (지식 보존)
+                for (let i = 0; i < Math.min(oldWeights.length, newWeights.length); i++) {
+                    const oldShape = oldWeights[i].shape;
+                    const newShape = newWeights[i].shape;
+                    
+                    // 크기가 같으면 그대로 복사
+                    if (JSON.stringify(oldShape) === JSON.stringify(newShape)) {
+                        newWeights[i].dispose();
+                        newWeights[i] = tf.clone(oldWeights[i]);
+                        console.log(`  ✅ Layer ${i}: Transferred (${oldShape})`);
+                    } 
+                    // 크기가 다르면 부분 복사 (확장된 부분은 랜덤 초기화)
+                    else if (oldShape.length === newShape.length) {
+                        const oldData = await oldWeights[i].data();
+                        const newData = await newWeights[i].data();
+                        
+                        // 겹치는 영역만 복사
+                        const copySize = Math.min(oldData.length, newData.length);
+                        for (let j = 0; j < copySize; j++) {
+                            newData[j] = oldData[j];
+                        }
+                        
+                        const updatedWeight = tf.tensor(newData, newShape);
+                        newWeights[i].dispose();
+                        newWeights[i] = updatedWeight;
+                        console.log(`  ⚡ Layer ${i}: Partial transfer (${oldShape} → ${newShape})`);
+                    } else {
+                        console.log(`  ⏭️  Layer ${i}: Skipped (incompatible shapes)`);
+                    }
+                }
+                
+                newModel.setWeights(newWeights);
+                console.log("✅ Knowledge transfer complete!");
+                
+            } catch (e) {
+                console.warn("⚠️ Knowledge transfer failed:", e);
+            }
+            
+            return newModel;
         }
 
         // --- Wikipedia Data Foraging - UNLIMITED KNOWLEDGE! ---
@@ -1231,6 +1313,34 @@ NETWORK GROWTH:
                     }
                 }
                 
+                // 🧬 Check for Evolution (매 블록 생성 후)
+                const blockHeight = blockchain.getBlockchainHeight();
+                const targetGeneration = getGenerationFromBlockHeight(blockHeight);
+                
+                if (targetGeneration > currentGeneration) {
+                    addLog(`🧬 EVOLUTION TRIGGERED! Gen ${currentGeneration} → Gen ${targetGeneration}`, "success");
+                    
+                    const oldModel = model;
+                    model = await upgradeBrain(oldModel, targetGeneration);
+                    
+                    if (oldModel) {
+                        oldModel.dispose();
+                    }
+                    
+                    currentGeneration = targetGeneration;
+                    
+                    // Update UI
+                    const genText = ['1st', '2nd', '3rd'];
+                    const suffix = currentGeneration <= 3 ? genText[currentGeneration - 1] : `${currentGeneration}th`;
+                    document.getElementById('brain-generation').innerText = `${suffix} Gen`;
+                    
+                    addLog(`✨ Brain upgraded to ${suffix} Generation!`, "success");
+                }
+                
+                // Update evolution progress UI
+                const blocksInGen = blockHeight % EVOLUTION_INTERVAL;
+                document.getElementById('evolution-progress').innerText = `${blocksInGen}/${EVOLUTION_INTERVAL} blocks`;
+                
                 setTimeout(trainStep, 0);
                 
             } catch(e) {
@@ -1385,7 +1495,16 @@ NETWORK GROWTH:
             if (!isMining) {
                 // Start mining
                 if (!model) {
-                    model = await createModel();
+                    // 🧬 현재 블록체인 높이 기반으로 세대 결정
+                    const blockHeight = blockchain.getBlockchainHeight();
+                    currentGeneration = getGenerationFromBlockHeight(blockHeight);
+                    
+                    model = await createModel(currentGeneration);
+                    
+                    // Update UI
+                    const genText = ['1st', '2nd', '3rd'];
+                    const suffix = currentGeneration <= 3 ? genText[currentGeneration - 1] : `${currentGeneration}th`;
+                    document.getElementById('brain-generation').innerText = `${suffix} Gen`;
                     
                     // Load saved weights if available
                     const saved = loadWeightsFromStorage();
