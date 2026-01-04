@@ -521,20 +521,37 @@ NETWORK GROWTH:
         // ============================================
         
         function initP2P() {
-            peer = new Peer({
+            // Try to load saved Peer ID from localStorage
+            let savedPeerId = localStorage.getItem('p2p_peer_id');
+            
+            // Create peer with saved ID (or let PeerJS generate new one)
+            const peerConfig = {
                 config: {
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:global.stun.twilio.com:3478' }
                     ]
                 }
-            });
+            };
+            
+            // If we have a saved ID, use it
+            if (savedPeerId) {
+                peer = new Peer(savedPeerId, peerConfig);
+                console.log("🔄 Restoring Peer ID:", savedPeerId);
+            } else {
+                peer = new Peer(peerConfig);
+                console.log("🆕 Generating new Peer ID");
+            }
             
             peer.on('open', (id) => {
                 myPeerId = id;
+                
+                // Save Peer ID to localStorage for future sessions
+                localStorage.setItem('p2p_peer_id', id);
+                console.log("🆔 My Peer ID:", id, "(saved to localStorage)");
+                
                 document.getElementById('my-peer-id').innerText = id.substring(0, 8) + "...";
-                console.log("🆔 My Peer ID:", id);
-                addLog(`🆔 Peer ID: ${id.substring(0, 12)}...`, "success");
+                addLog(`🆔 Peer ID: ${id.substring(0, 12)}... (영구 저장됨)`, "success");
                 
                 // Enable share button
                 document.getElementById('share-btn').disabled = false;
@@ -1310,6 +1327,7 @@ NETWORK GROWTH:
     </script>
 </body>
 </html>
+
 
 
 
