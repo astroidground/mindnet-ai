@@ -33,8 +33,10 @@ NETWORK GROWTH:
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.5.4/elliptic.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/helia@latest/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@helia/unixfs@latest/dist/index.min.js"></script>
 
-    <!-- No Firebase needed! Pure P2P using localStorage + URL sharing -->
+    <!-- No Firebase, No Central Server! Pure P2P + IPFS Decentralized Storage -->
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap');
@@ -326,6 +328,95 @@ NETWORK GROWTH:
             blocksReceived: 0
         };
         
+        // ============================================
+        // IPFS INTEGRATION (Helia - Decentralized Storage)
+        // ============================================
+        
+        let heliaNode = null;
+        let unixfs = null;
+        
+        async function initIPFS() {
+            try {
+                console.log("📦 Initializing IPFS Node (Helia)...");
+                
+                // Create Helia node (IPFS in browser)
+                heliaNode = await window.Helia.createHelia();
+                
+                // Create UnixFS instance for file operations
+                unixfs = await window.HeliaUnixfs.unixfs(heliaNode);
+                
+                addLog("📦 IPFS Node initialized (Decentralized storage ready)", "success");
+                console.log("✅ Helia IPFS node created");
+            } catch (e) {
+                console.error("❌ IPFS Init Error:", e);
+                addLog("⚠️ IPFS initialization failed (will use P2P fallback)", "warn");
+            }
+        }
+        
+        // Upload data to IPFS and return CID (Content Identifier)
+        async function uploadToIPFS(data) {
+            if (!heliaNode || !unixfs) {
+                console.warn("⚠️ IPFS not available, returning null");
+                return null;
+            }
+            
+            try {
+                const dataString = JSON.stringify(data);
+                const encoder = new TextEncoder();
+                const bytes = encoder.encode(dataString);
+                
+                // Add to IPFS
+                const cid = await unixfs.addBytes(bytes);
+                
+                console.log(`📤 Uploaded to IPFS: ${cid.toString()} (${(bytes.length / 1024).toFixed(2)} KB)`);
+                return cid.toString();
+            } catch (e) {
+                console.error("❌ IPFS Upload Error:", e);
+                return null;
+            }
+        }
+        
+        // Download data from IPFS using CID
+        async function downloadFromIPFS(cidString) {
+            if (!heliaNode || !unixfs) {
+                console.warn("⚠️ IPFS not available");
+                return null;
+            }
+            
+            try {
+                console.log(`📥 Downloading from IPFS: ${cidString}`);
+                
+                // Parse CID
+                const cid = window.Helia.CID.parse(cidString);
+                
+                // Download bytes
+                const chunks = [];
+                for await (const chunk of unixfs.cat(cid)) {
+                    chunks.push(chunk);
+                }
+                
+                // Combine chunks
+                const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+                const combined = new Uint8Array(totalLength);
+                let offset = 0;
+                for (const chunk of chunks) {
+                    combined.set(chunk, offset);
+                    offset += chunk.length;
+                }
+                
+                // Decode and parse
+                const decoder = new TextDecoder();
+                const dataString = decoder.decode(combined);
+                const data = JSON.parse(dataString);
+                
+                console.log(`✅ Downloaded from IPFS: ${(combined.length / 1024).toFixed(2)} KB`);
+                return data;
+            } catch (e) {
+                console.error("❌ IPFS Download Error:", e);
+                return null;
+            }
+        }
+        
         // --- Global Ledger (Distributed Ledger) ---
         let globalLedger = {}; // {walletAddress: balance} - Balance records of all participants
         
@@ -373,7 +464,8 @@ NETWORK GROWTH:
                 this.reward = data.reward || 0;
                 
                 // 🔐 Include verification data (PoV - Proof of Validation)
-                this.weights = data.weights || null;         // Full weights (verifiable)
+                this.weights = data.weights || null;         // Full weights (verifiable) - Fallback if IPFS fails
+                this.weightsCID = data.weightsCID || null;   // IPFS CID for weights (preferred)
                 this.trainingData = data.trainingData || ""; // Training data evidence
                 
                 this.hash = this.calculateHash();
@@ -925,12 +1017,34 @@ NETWORK GROWTH:
                 }
                 
                 // [Step 2] PoV validation (mathematical accuracy) - Check if peer is lying
-                if (block.weights && block.trainingData) {
-                    const isLossValid = await verifyLoss(block.weights, block.trainingData, block.loss);
+                let weightsToVerify = block.weights;
+                
+                // 📦 If block has IPFS CID, download weights from IPFS
+                if (block.weightsCID && !weightsToVerify) {
+                    try {
+                        addLog(`📥 Downloading weights from IPFS: ${block.weightsCID.substring(0, 12)}...`, "info");
+                        weightsToVerify = await downloadFromIPFS(block.weightsCID);
+                        
+                        if (weightsToVerify) {
+                            addLog(`✅ Weights downloaded from IPFS (Decentralized verification!)`, "success");
+                        } else {
+                            addLog(`⚠️ IPFS download failed, cannot verify block`, "error");
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("IPFS download error:", e);
+                        addLog(`⚠️ Block #${block.index} rejected: Cannot download weights from IPFS`, "error");
+                        return;
+                    }
+                }
+                
+                // Verify if we have weights and training data
+                if (weightsToVerify && block.trainingData) {
+                    const isLossValid = await verifyLoss(weightsToVerify, block.trainingData, block.loss);
                     
                     if (!isLossValid) {
-                        addLog(`⚠️ Block #${block.index} rejected: Loss verification FAILED (수치 조작 의심!)`, "error");
-                        // TODO: 악의적 노드를 블랙리스트에 추가
+                        addLog(`⚠️ Block #${block.index} rejected: Loss verification FAILED (Fraud suspected!)`, "error");
+                        // TODO: Add malicious node to blacklist
                         return;
                     }
                     
@@ -1306,13 +1420,25 @@ NETWORK GROWTH:
                     // Calculate weights hash
                     const weightsHash = hashWeights(weights);
                     
-                    // 🔐 Add block to blockchain with FULL verification data
+                    // 📦 Upload weights to IPFS (if available)
+                    let weightsCID = null;
+                    try {
+                        weightsCID = await uploadToIPFS(weights);
+                        if (weightsCID) {
+                            addLog(`📦 Weights uploaded to IPFS: ${weightsCID.substring(0, 12)}...`, "info");
+                        }
+                    } catch (e) {
+                        console.warn("IPFS upload failed, will include weights in block:", e);
+                    }
+                    
+                    // 🔐 Add block to blockchain with IPFS CID (or full weights as fallback)
                     const newBlock = blockchain.addBlock({
                         miner: walletAddress,
                         loss: loss,
                         weightsHash: weightsHash,
                         peerId: myPeerId,
-                        weights: weights,              // ✅ Include full weights (for verification)
+                        weightsCID: weightsCID,        // 📦 IPFS CID (preferred - saves bandwidth)
+                        weights: weightsCID ? null : weights, // ✅ Fallback: full weights if IPFS unavailable
                         trainingData: trainingText,    // ✅ Include training data evidence
                         reward: BLOCK_WIN_REWARD       // 🎁 Performance reward (5.0 GEN)
                     });
@@ -1617,7 +1743,8 @@ NETWORK GROWTH:
         loadBalance();        // 1. Load balance first
         initGlobalLedger();   // 2. Initialize global ledger
         initChart();          // 3. Initialize chart
-        initP2P();            // 4. Initialize P2P network
+        initIPFS();           // 4. Initialize IPFS (Decentralized storage)
+        initP2P();            // 5. Initialize P2P network
         
         // Periodic gossip
         setInterval(() => {
