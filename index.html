@@ -290,15 +290,18 @@ NETWORK GROWTH:
         function updateBalanceUI() {
             document.getElementById('balance').innerText = balance.toFixed(2);
             
-            // Update Global Ledger Stats
-            const minerCount = Object.keys(globalLedger).length;
-            const totalMined = Object.values(globalLedger).reduce((a, b) => a + b, 0);
-            
-            document.getElementById('network-miners').innerText = minerCount;
-            document.getElementById('total-mined').innerText = totalMined.toFixed(2);
+            // Update Global Ledger Stats (안전하게 처리)
+            if (typeof globalLedger !== 'undefined' && globalLedger) {
+                const minerCount = Object.keys(globalLedger).length;
+                const totalMined = Object.values(globalLedger).reduce((a, b) => a + b, 0);
+                
+                document.getElementById('network-miners').innerText = minerCount;
+                document.getElementById('total-mined').innerText = totalMined.toFixed(2);
+            } else {
+                document.getElementById('network-miners').innerText = '0';
+                document.getElementById('total-mined').innerText = '0.00';
+            }
         }
-        
-        loadBalance();
         
         // --- P2P Network State ---
         let peer = null;
@@ -1383,9 +1386,10 @@ NETWORK GROWTH:
         // INITIALIZATION
         // ============================================
         
-        initGlobalLedger();
-        initChart();
-        initP2P();
+        loadBalance();        // 1. Load balance first
+        initGlobalLedger();   // 2. Initialize global ledger
+        initChart();          // 3. Initialize chart
+        initP2P();            // 4. Initialize P2P network
         
         // Periodic gossip
         setInterval(() => {
