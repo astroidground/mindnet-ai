@@ -33,7 +33,7 @@ NETWORK GROWTH:
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.5.4/elliptic.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    
+
     <!-- No Firebase needed! Pure P2P using localStorage + URL sharing -->
 
     <style>
@@ -63,7 +63,7 @@ NETWORK GROWTH:
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        
+
         .terminal-scroll {
             scrollbar-width: thin;
             scrollbar-color: #00FF00 #0A0A0A;
@@ -82,7 +82,7 @@ NETWORK GROWTH:
     </style>
 </head>
 <body class="p-4 min-h-screen">
-    
+
     <!-- Header -->
     <header class="flex justify-between items-center mb-6 p-4 neon-border bg-black bg-opacity-50">
         <div>
@@ -128,16 +128,16 @@ NETWORK GROWTH:
                         <span class="text-gray-400">Global Best Loss</span>
                         <span id="global-loss" class="font-bold text-yellow-400">-</span>
                     </div>
-                </div>
-                
+            </div>
+            
                 <div class="mt-4 pt-4 border-t border-gray-700">
                     <p class="text-xs text-gray-400 mb-2">Connected Peers:</p>
                     <div id="peer-list" class="space-y-1 max-h-32 overflow-y-auto terminal-scroll">
                         <p class="text-xs text-gray-500">No peers connected</p>
-                    </div>
                 </div>
             </div>
-            
+        </div>
+
             <!-- Mining Control -->
             <div class="neon-border p-4 bg-black bg-opacity-50 text-center">
                 <h2 class="text-xl font-bold mb-4">⚙️ MINING CONTROL</h2>
@@ -148,7 +148,7 @@ NETWORK GROWTH:
                     Status: <span class="text-red-500">OFFLINE</span>
                 </p>
             </div>
-            
+
             <!-- Stats -->
             <div class="neon-border p-4 bg-black bg-opacity-50">
                 <h2 class="text-lg neon-text mb-3">📊 LOCAL STATS</h2>
@@ -166,13 +166,13 @@ NETWORK GROWTH:
                         <span id="model-params" class="font-bold">-</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-400">Blocks Received</span>
+                        <span class="text-gray-400">⛓️ Blockchain Height</span>
                         <span id="blocks-received" class="font-bold text-purple-400">0</span>
+                    </div>
                     </div>
                 </div>
             </div>
-        </div>
-        
+
         <!-- Middle: Training Visualization -->
         <div class="md:col-span-2 space-y-4">
             
@@ -180,15 +180,15 @@ NETWORK GROWTH:
             <div class="neon-border p-4 bg-black bg-opacity-50 h-80">
                 <h2 class="text-lg neon-text mb-2">🧠 NEURAL EVOLUTION (LOSS)</h2>
                 <canvas id="lossChart"></canvas>
-            </div>
+                    </div>
             
             <!-- Current Learning Data -->
             <div class="neon-border p-4 bg-black bg-opacity-50">
                 <h2 class="text-lg neon-text mb-2">📖 CURRENTLY LEARNING</h2>
                 <div id="learning-preview" class="text-xs p-3 bg-gray-900 bg-opacity-50 text-gray-300 italic rounded h-24 overflow-y-auto terminal-scroll">
                     <span class="text-gray-500">No data yet...</span>
-                </div>
-            </div>
+                    </div>
+                    </div>
             
             <!-- P2P Activity Feed -->
             <div class="neon-border p-4 bg-black bg-opacity-50 flex flex-col">
@@ -196,8 +196,8 @@ NETWORK GROWTH:
                 <div id="activity-feed" class="terminal-scroll flex-grow overflow-y-auto h-48 text-xs space-y-1 p-2 bg-gray-900 bg-opacity-30 font-mono">
                     <p class="text-gray-500">> System initialized in Pure P2P mode</p>
                     <p class="text-gray-500">> No central server - all data P2P synchronized</p>
+                    </div>
                 </div>
-            </div>
             
             <!-- AI Inference Test -->
             <div class="neon-border p-4 bg-black bg-opacity-50">
@@ -205,9 +205,9 @@ NETWORK GROWTH:
                 <div class="flex gap-2">
                     <input type="text" id="inference-input" placeholder="Type seed text..." class="flex-grow bg-black border border-green-900 text-green-400 p-2 text-sm">
                     <button id="inference-btn" class="px-4 py-2 bg-green-900 hover:bg-green-700 text-white font-bold">GENERATE</button>
-                </div>
-                <div id="inference-output" class="mt-2 p-2 bg-gray-900 text-green-300 text-sm min-h-12 hidden"></div>
             </div>
+                <div id="inference-output" class="mt-2 p-2 bg-gray-900 text-green-300 text-sm min-h-12 hidden"></div>
+        </div>
         </div>
     </div>
 
@@ -267,6 +267,166 @@ NETWORK GROWTH:
             bestWeights: null,
             blocksReceived: 0
         };
+        
+        // ============================================
+        // BLOCKCHAIN IMPLEMENTATION
+        // ============================================
+        
+        class Block {
+            constructor(index, timestamp, previousHash, data) {
+                this.index = index;
+                this.timestamp = timestamp;
+                this.previousHash = previousHash;
+                this.miner = data.miner;
+                this.loss = data.loss;
+                this.weightsHash = data.weightsHash;
+                this.peerId = data.peerId;
+                this.hash = this.calculateHash();
+            }
+            
+            calculateHash() {
+                const data = this.index + this.timestamp + this.previousHash + 
+                            this.miner + this.loss + this.weightsHash;
+                // Simple hash (in production, use SHA-256)
+                let hash = 0;
+                for (let i = 0; i < data.length; i++) {
+                    const char = data.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return Math.abs(hash).toString(16).padStart(16, '0');
+            }
+        }
+        
+        class Blockchain {
+            constructor() {
+                this.chain = this.loadChain() || [this.createGenesisBlock()];
+                this.saveChain();
+            }
+            
+            createGenesisBlock() {
+                return new Block(0, Date.now(), "0", {
+                    miner: "GENESIS",
+                    loss: 9.9,
+                    weightsHash: "0000000000000000",
+                    peerId: "SYSTEM"
+                });
+            }
+            
+            getLatestBlock() {
+                return this.chain[this.chain.length - 1];
+            }
+            
+            addBlock(data) {
+                const previousBlock = this.getLatestBlock();
+                const newBlock = new Block(
+                    previousBlock.index + 1,
+                    Date.now(),
+                    previousBlock.hash,
+                    data
+                );
+                
+                // Validate before adding
+                if (this.isValidNewBlock(newBlock, previousBlock)) {
+                    this.chain.push(newBlock);
+                    this.saveChain();
+                    
+                    // Broadcast to network
+                    this.broadcastBlock(newBlock);
+                    
+                    console.log(`⛓️ Block #${newBlock.index} added to chain`);
+                    return newBlock;
+                }
+                return null;
+            }
+            
+            isValidNewBlock(newBlock, previousBlock) {
+                if (previousBlock.index + 1 !== newBlock.index) {
+                    console.warn("Invalid index");
+                    return false;
+                }
+                if (previousBlock.hash !== newBlock.previousHash) {
+                    console.warn("Invalid previous hash");
+                    return false;
+                }
+                if (newBlock.calculateHash() !== newBlock.hash) {
+                    console.warn("Invalid hash");
+                    return false;
+                }
+                return true;
+            }
+            
+            isValidChain(chain) {
+                if (JSON.stringify(chain[0]) !== JSON.stringify(this.createGenesisBlock())) {
+                    return false;
+                }
+                
+                for (let i = 1; i < chain.length; i++) {
+                    const block = Object.assign(new Block(0, 0, "0", {}), chain[i]);
+                    const previousBlock = chain[i - 1];
+                    
+                    if (!this.isValidNewBlock(block, previousBlock)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            
+            replaceChain(newChain) {
+                if (newChain.length > this.chain.length && this.isValidChain(newChain)) {
+                    console.log('🔄 Replacing chain with longer valid chain');
+                    this.chain = newChain;
+                    this.saveChain();
+                    return true;
+                }
+                return false;
+            }
+            
+            saveChain() {
+                try {
+                    localStorage.setItem('p2p_blockchain', JSON.stringify(this.chain));
+                } catch(e) {
+                    console.error("Failed to save blockchain:", e);
+                }
+            }
+            
+            loadChain() {
+                try {
+                    const saved = localStorage.getItem('p2p_blockchain');
+                    if (saved) {
+                        const chain = JSON.parse(saved);
+                        console.log(`📂 Loaded blockchain: ${chain.length} blocks`);
+                        return chain;
+                    }
+                } catch(e) {
+                    console.error("Failed to load blockchain:", e);
+                }
+                return null;
+            }
+            
+            broadcastBlock(block) {
+                Object.values(connections).forEach(conn => {
+                    try {
+                        conn.send({
+                            type: 'new_block',
+                            block: block
+                        });
+                    } catch(e) {
+                        console.error("Failed to broadcast block:", e);
+                    }
+                });
+            }
+            
+            getBlockchainHeight() {
+                return this.chain.length - 1; // Exclude genesis
+            }
+        }
+        
+        // Initialize blockchain
+        let blockchain = new Blockchain();
+        
+        // Update UI
+        document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
         
         // --- AI Model ---
         let model = null;
@@ -423,6 +583,13 @@ NETWORK GROWTH:
                         type: 'request_weights'
                     });
                 }
+                
+                // Request blockchain if peer might have longer chain
+                setTimeout(() => {
+                    sendToPeer(conn, {
+                        type: 'request_chain'
+                    });
+                }, 1000);
             });
             
             conn.on('data', (data) => {
@@ -517,6 +684,58 @@ NETWORK GROWTH:
                 case 'request_weights':
                     sendMyWeights(peerId);
                     break;
+                    
+                case 'new_block':
+                    handleNewBlock(peerId, data);
+                    break;
+                    
+                case 'request_chain':
+                    // Send full blockchain to peer
+                    sendToPeer(connections[peerId], {
+                        type: 'blockchain',
+                        chain: blockchain.chain
+                    });
+                    break;
+                    
+                case 'blockchain':
+                    // Received full chain from peer
+                    if (data.chain && blockchain.replaceChain(data.chain)) {
+                        addLog(`🔄 Updated blockchain from ${peerId.substring(0, 8)}... (${data.chain.length} blocks)`, "success");
+                        document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                    }
+                    break;
+            }
+        }
+        
+        function handleNewBlock(peerId, data) {
+            const block = Object.assign(new Block(0, 0, "0", {}), data.block);
+            const latestBlock = blockchain.getLatestBlock();
+            
+            if (block.index === latestBlock.index + 1) {
+                // Next block in sequence
+                if (blockchain.isValidNewBlock(block, latestBlock)) {
+                    blockchain.chain.push(block);
+                    blockchain.saveChain();
+                    document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                    
+                    addLog(`⛓️ Block #${block.index} received from ${peerId.substring(0, 8)}...`, "success");
+                    
+                    // Relay to other peers (gossip)
+                    Object.keys(connections).forEach(pid => {
+                        if (pid !== peerId) {
+                            sendToPeer(connections[pid], {
+                                type: 'new_block',
+                                block: block
+                            });
+                        }
+                    });
+                }
+            } else if (block.index > latestBlock.index + 1) {
+                // Missing blocks, request full chain
+                addLog(`⚠️ Missing blocks detected, requesting full chain...`, "warn");
+                sendToPeer(connections[peerId], {
+                    type: 'request_chain'
+                });
             }
         }
         
@@ -627,7 +846,7 @@ NETWORK GROWTH:
             console.log("🧠 Model created:", params, "parameters");
             return model;
         }
-        
+
         // --- Wikipedia Data Foraging (Same as Python server!) ---
         const WIKI_TOPICS = [
             "Artificial_intelligence", 
@@ -721,7 +940,7 @@ NETWORK GROWTH:
                 ys: tf.tensor2d(ys, [ys.length, vocab.length])
             };
         }
-        
+
         async function trainStep() {
             if (!isMining || !model) return;
             
@@ -734,15 +953,15 @@ NETWORK GROWTH:
                     return;
                 }
                 
-                const history = await model.fit(xs, ys, {
-                    epochs: 1,
+            const history = await model.fit(xs, ys, {
+                epochs: 1,
                     batchSize: 32,
                     shuffle: true,
                     verbose: 0
-                });
-                
-                const loss = history.history.loss[0];
-                
+            });
+            
+            const loss = history.history.loss[0];
+            
                 xs.dispose();
                 ys.dispose();
                 
@@ -766,6 +985,25 @@ NETWORK GROWTH:
                         data: Array.from(w.dataSync()),
                         shape: w.shape
                     }));
+                    
+                    // Calculate weights hash
+                    const weightsHash = weights.map(w => w.data.reduce((a, b) => a + b, 0))
+                        .reduce((a, b) => a + b, 0)
+                        .toString(16)
+                        .substring(0, 16);
+                    
+                    // Add block to blockchain
+                    const newBlock = blockchain.addBlock({
+                        miner: walletAddress,
+                        loss: loss,
+                        weightsHash: weightsHash,
+                        peerId: myPeerId
+                    });
+                    
+                    if (newBlock) {
+                        document.getElementById('blocks-received').innerText = blockchain.getBlockchainHeight();
+                        addLog(`⛓️ Block #${newBlock.index} mined!`, "success");
+                    }
                     
                     broadcastToNetwork({
                         type: 'weights_update',
@@ -1039,4 +1277,6 @@ NETWORK GROWTH:
     </script>
 </body>
 </html>
+
+
 
