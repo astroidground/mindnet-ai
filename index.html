@@ -267,6 +267,55 @@ NETWORK GROWTH:
         let localBestLoss = 9.9;
         let lossHistory = [];
         
+        // --- Reward System ---
+        let balance = 0;
+        let rewardMilestones = [
+            { threshold: 5.0, reward: 1, achieved: false },
+            { threshold: 3.0, reward: 2, achieved: false },
+            { threshold: 2.0, reward: 5, achieved: false },
+            { threshold: 1.5, reward: 10, achieved: false },
+            { threshold: 1.0, reward: 20, achieved: false },
+            { threshold: 0.5, reward: 50, achieved: false }
+        ];
+        
+        function loadBalance() {
+            const saved = localStorage.getItem('p2p_balance');
+            if (saved) {
+                balance = parseFloat(saved);
+                document.getElementById('balance').innerText = balance;
+            }
+        }
+        
+        function saveBalance() {
+            localStorage.setItem('p2p_balance', balance.toString());
+        }
+        
+        function checkRewards(loss) {
+            let earnedTotal = 0;
+            
+            rewardMilestones.forEach(milestone => {
+                if (loss < milestone.threshold && !milestone.achieved) {
+                    milestone.achieved = true;
+                    balance += milestone.reward;
+                    earnedTotal += milestone.reward;
+                    
+                    addLog(`🎉 MILESTONE! Loss < ${milestone.threshold} → +${milestone.reward} GEN`, "success");
+                }
+            });
+            
+            if (earnedTotal > 0) {
+                document.getElementById('balance').innerText = balance;
+                saveBalance();
+                
+                // Visual feedback
+                const balEl = document.getElementById('balance');
+                balEl.classList.add('animate-pulse');
+                setTimeout(() => balEl.classList.remove('animate-pulse'), 1000);
+            }
+        }
+        
+        loadBalance();
+        
         // --- Chart ---
         let lossChart = null;
         
@@ -683,6 +732,9 @@ NETWORK GROWTH:
                 if (loss < localBestLoss) {
                     localBestLoss = loss;
                     document.getElementById('local-loss').innerText = loss.toFixed(4);
+                    
+                    // Check for rewards!
+                    checkRewards(loss);
                     
                     addLog(`🎉 New best local loss: ${loss.toFixed(4)}`, "success");
                     
