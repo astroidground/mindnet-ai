@@ -242,16 +242,29 @@ class Ledger:
 class Crawler:
     def forage(self) -> str:
         # Simple Wikipedia Scraper
-        topics = ["Artificial_intelligence", "Evolution", "Blockchain", "Neural_network", "Genetic_algorithm"]
+        topics = ["Artificial_intelligence", "Evolution", "Blockchain", "Neural_network", "Genetic_algorithm", "Life", "Universe", "Philosophy", "Mathematics"]
         try:
             topic = random.choice(topics)
             url = f"https://en.wikipedia.org/wiki/{topic}"
-            res = requests.get(url, timeout=3)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, 'html.parser')
-            text = " ".join([p.text for p in soup.find_all('p')[:3]])
-            return text[:1000] # Limit size
-        except:
-            return "Genesis AI is evolving. " * 10
+            # Get text from paragraphs, ensuring we get enough content
+            paragraphs = soup.find_all('p')
+            text_content = ""
+            for p in paragraphs:
+                if len(p.text) > 100: # Filter out short/empty paragraphs
+                    text_content += p.text + " "
+                if len(text_content) > 1000:
+                    break
+            
+            if not text_content or len(text_content) < 50:
+                return "Genesis AI is evolving. Searching for knowledge in the digital void... " * 10
+                
+            return text_content[:1000] # Limit size
+        except Exception as e:
+            print(f"Crawler Error: {e}")
+            return "Genesis AI is evolving. Searching for knowledge in the digital void... " * 10
 
 # --- Main Server Node ---
 class MindHashNode:
