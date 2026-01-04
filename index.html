@@ -462,6 +462,9 @@
             
             try {
                 // 1. Fetch Job from Server (Real PoT) - Send address for tracking
+                if (epochCount === 0) {
+                    console.log(`🔗 Registering node with server: ${walletAddress}`);
+                }
                 const jobRes = await fetch(`${API_URL}/mining/job?address=${walletAddress}`);
                 if (!jobRes.ok) throw new Error("Server offline");
                 const job = await jobRes.json();
@@ -683,6 +686,7 @@
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('active-nodes').innerText = data.active_nodes;
+                    console.log(`📊 Network Stats: ${data.active_nodes} active nodes`, data.tracked_addresses || []);
                 }
             } catch (e) {
                 console.warn("Failed to fetch network stats:", e);

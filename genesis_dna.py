@@ -279,7 +279,10 @@ class MindHashNode:
 
     def update_node_activity(self, address: str):
         """노드의 마지막 활동 시간 기록"""
+        is_new = address not in self.active_nodes
         self.active_nodes[address] = time.time()
+        if is_new:
+            print(f"🟢 New node joined: {address[:16]}... (Total: {len(self.active_nodes)})")
     
     def get_active_node_count(self) -> int:
         """활성 노드 수 반환 (타임아웃 제외)"""
@@ -287,6 +290,9 @@ class MindHashNode:
         active = [addr for addr, last_seen in self.active_nodes.items() 
                   if current_time - last_seen < self.node_timeout]
         # 비활성 노드 정리
+        removed = len(self.active_nodes) - len(active)
+        if removed > 0:
+            print(f"🔴 {removed} nodes timed out")
         self.active_nodes = {addr: ts for addr, ts in self.active_nodes.items() if addr in active}
         return len(active)
 
@@ -310,10 +316,13 @@ class MindHashNode:
         def stats():
             """[업데이트] 네트워크 통계 (활성 노드 수 등)"""
             last_block = self.ledger.get_last_block()
+            active_count = self.get_active_node_count()
+            print(f"📊 /stats called: {active_count} active nodes, {len(self.active_nodes)} tracked")
             return jsonify({
-                "active_nodes": self.get_active_node_count(),
+                "active_nodes": active_count,
                 "total_blocks": last_block['idx'] if last_block else 0,
-                "version": VERSION
+                "version": VERSION,
+                "tracked_addresses": list(self.active_nodes.keys())  # 디버깅용
             })
 
         @self.app.route('/mining/job', methods=['GET'])
