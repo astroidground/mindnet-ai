@@ -370,24 +370,31 @@
             const newModel = await createModel(currentGeneration);
             
             // 2. Knowledge Transfer (Weight Inheritance)
-            // Try to copy weights where shapes match
+            // Clone weights where shapes match (CRITICAL: must clone, not reference!)
             const oldWeights = oldModel.getWeights();
             const newWeights = newModel.getWeights();
             
             let transferredCount = 0;
-            for (let i = 0; i < Math.min(oldWeights.length, newWeights.length); i++) {
-                if (oldWeights[i].shape.every((v, j) => v === newWeights[i].shape[j])) {
-                    newWeights[i] = oldWeights[i];
+            const clonedWeights = [];
+            
+            for (let i = 0; i < newWeights.length; i++) {
+                if (i < oldWeights.length && 
+                    oldWeights[i].shape.every((v, j) => v === newWeights[i].shape[j])) {
+                    // Clone the weight tensor (not reference!)
+                    clonedWeights.push(tf.clone(oldWeights[i]));
                     transferredCount++;
+                } else {
+                    // Keep new weight as-is
+                    clonedWeights.push(newWeights[i]);
                 }
             }
             
             if (transferredCount > 0) {
-                newModel.setWeights(newWeights);
+                newModel.setWeights(clonedWeights);
                 console.log(`🧠 Knowledge Transferred: ${transferredCount} layers inherited.`);
             }
             
-            // Dispose old model to free GPU memory
+            // Dispose old model to free GPU memory (now safe)
             oldModel.dispose();
             model = newModel;
             
@@ -475,17 +482,24 @@
                     epochs: 1, 
                     batchSize: 64, // Increased from 16 for speed
                     shuffle: true,
-                    yieldEvery: 'never' // Don't yield to UI thread during fit (faster)
+                    yieldEvery: 'batch' // Changed from 'never' to allow periodic cleanup
                 });
                 
                 const loss = history.history.loss[0];
+                
+                // Periodic GPU memory cleanup (every 20 epochs)
+                if (epochCount % 20 === 0) {
+                    const numTensors = tf.memory().numTensors;
+                    console.log(`🧹 Memory check: ${numTensors} tensors`);
+                    // Manual garbage collection hint
+                    await tf.nextFrame();
+                }
                 
                 // --- Gap Analysis Fix #2: Real Weight Submission ---
                 // 1. Extract ALL weights (Full Brain Snapshot)
                 const allWeights = model.getWeights();
                 const weightArrays = allWeights.map(w => Array.from(w.dataSync()));
-                // Dispose weight tensors after extracting data to prevent memory leak
-                allWeights.forEach(w => w.dispose());
+                // NOTE: Do NOT dispose model.getWeights() - they are references to model's internal weights!
                 
                 // 2. Create Proof: Sign(Loss + JobID)
                 const msg = `JOB:${job.job_id}:LOSS:${loss.toFixed(4)}`;
@@ -614,38 +628,37 @@
                 // Convert seed to indices
                 let inputIndices = seed.split('').map(c => charToIndex[c] || 0);
                 
-                // Generate characters
+                // Generate characters (wrapped in tidy for automatic cleanup)
                 for (let i = 0; i < 15; i++) {
-                    const seq = inputIndices.slice(-SEQUENCE_LENGTH);
-                    while (seq.length < SEQUENCE_LENGTH) seq.unshift(0);
+                    // Use tf.tidy to auto-dispose all intermediate tensors
+                    const char = tf.tidy(() => {
+                        const seq = inputIndices.slice(-SEQUENCE_LENGTH);
+                        while (seq.length < SEQUENCE_LENGTH) seq.unshift(0);
+                        
+                        const inputTensor = tf.tensor2d([seq]);
+                        const prediction = model.predict(inputTensor);
+                        const logits = prediction.dataSync(); 
+                        
+                        // Sample from distribution instead of argmax for more variety
+                        const temp = 0.5;
+                        const preds = logits.map(x => Math.exp(x/temp));
+                        const sum = preds.reduce((a, b) => a + b, 0);
+                        const probs = preds.map(x => x / sum);
+                        
+                        let cumsum = 0;
+                        const r = Math.random();
+                        let maxIdx = 0;
+                        
+                        for(let j=0; j<probs.length; j++) {
+                            cumsum += probs[j];
+                            if (r < cumsum) { maxIdx = j; break; }
+                        }
+                        
+                        return indexToChar[maxIdx];
+                    });
                     
-                    const inputTensor = tf.tensor2d([seq]);
-                    
-                    const prediction = model.predict(inputTensor);
-                    const logits = prediction.dataSync(); 
-                    
-                    // Sample from distribution instead of argmax for more variety
-                    // (Simple temperature sampling)
-                    const temp = 0.5;
-                    const preds = logits.map(x => Math.exp(x/temp));
-                    const sum = preds.reduce((a, b) => a + b, 0);
-                    const probs = preds.map(x => x / sum);
-                    
-                    let cumsum = 0;
-                    const r = Math.random();
-                    let maxIdx = 0;
-                    
-                    for(let j=0; j<probs.length; j++) {
-                        cumsum += probs[j];
-                        if (r < cumsum) { maxIdx = j; break; }
-                    }
-
-                    const char = indexToChar[maxIdx];
                     generated += char;
-                    inputIndices.push(maxIdx);
-                    
-                    inputTensor.dispose();
-                    prediction.dispose();
+                    inputIndices.push(charToIndex[char] || 0);
                 }
                 
                 p.innerHTML = `<span class="text-green-500">🧠 Thinking:</span> "...${seed}<span class="text-white font-bold">${generated}</span>..."`;
