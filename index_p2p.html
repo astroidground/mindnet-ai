@@ -182,10 +182,18 @@ NETWORK GROWTH:
                 <canvas id="lossChart"></canvas>
             </div>
             
+            <!-- Current Learning Data -->
+            <div class="neon-border p-4 bg-black bg-opacity-50">
+                <h2 class="text-lg neon-text mb-2">📖 CURRENTLY LEARNING</h2>
+                <div id="learning-preview" class="text-xs p-3 bg-gray-900 bg-opacity-50 text-gray-300 italic rounded h-24 overflow-y-auto terminal-scroll">
+                    <span class="text-gray-500">No data yet...</span>
+                </div>
+            </div>
+            
             <!-- P2P Activity Feed -->
             <div class="neon-border p-4 bg-black bg-opacity-50 flex flex-col">
                 <h2 class="text-lg neon-text mb-2">📡 P2P ACTIVITY LOG</h2>
-                <div id="activity-feed" class="terminal-scroll flex-grow overflow-y-auto h-64 text-xs space-y-1 p-2 bg-gray-900 bg-opacity-30 font-mono">
+                <div id="activity-feed" class="terminal-scroll flex-grow overflow-y-auto h-48 text-xs space-y-1 p-2 bg-gray-900 bg-opacity-30 font-mono">
                     <p class="text-gray-500">> System initialized in Pure P2P mode</p>
                     <p class="text-gray-500">> No central server - all data P2P synchronized</p>
                 </div>
@@ -654,7 +662,14 @@ NETWORK GROWTH:
                 const text = data.extract || data.description || "";
                 
                 if (text.length > 100) {
-                    addLog(`📚 Fetched Wikipedia: ${topic}`, "info");
+                    // Show what we're learning
+                    const preview = text.substring(0, 200) + "...";
+                    const topicName = topic.replace(/_/g, ' ');
+                    document.getElementById('learning-preview').innerHTML = 
+                        `<div class="text-yellow-400 font-bold mb-1">📚 ${topicName}</div>` +
+                        `<div class="text-gray-300">${preview}</div>`;
+                    
+                    addLog(`📚 Learning: ${topicName}`, "info");
                     return text;
                 }
             } catch (e) {
@@ -662,7 +677,10 @@ NETWORK GROWTH:
             }
             
             // Fallback
-            return "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.";
+            const fallback = "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.";
+            document.getElementById('learning-preview').innerHTML = 
+                `<div class="text-gray-500">Fallback training data</div>`;
+            return fallback;
         }
         
         async function generateTrainingData() {
