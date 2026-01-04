@@ -662,6 +662,80 @@ NETWORK GROWTH:
         
         let knownPeers = new Set();
         
+        // ============================================
+        // REPUTATION SYSTEM - Anti-Fraud Protection
+        // ============================================
+        
+        let peerReputation = {}; // {peerId: {score, successCount, failCount, lastUpdate}}
+        
+        function loadReputation() {
+            try {
+                const saved = localStorage.getItem('p2p_reputation');
+                if (saved) {
+                    peerReputation = JSON.parse(saved);
+                    console.log(`📊 Loaded reputation data: ${Object.keys(peerReputation).length} peers`);
+                }
+            } catch (e) {
+                console.error("Failed to load reputation:", e);
+            }
+        }
+        
+        function saveReputation() {
+            try {
+                localStorage.setItem('p2p_reputation', JSON.stringify(peerReputation));
+            } catch (e) {
+                console.error("Failed to save reputation:", e);
+            }
+        }
+        
+        function getReputation(peerId) {
+            if (!peerReputation[peerId]) {
+                peerReputation[peerId] = {
+                    score: 100, // Start with neutral score (0-200 range)
+                    successCount: 0,
+                    failCount: 0,
+                    lastUpdate: Date.now()
+                };
+            }
+            return peerReputation[peerId];
+        }
+        
+        function updateReputation(peerId, success) {
+            const rep = getReputation(peerId);
+            
+            if (success) {
+                rep.successCount++;
+                rep.score = Math.min(200, rep.score + 2); // +2 for honest behavior
+                console.log(`✅ ${peerId.substring(0, 8)} reputation increased: ${rep.score}`);
+            } else {
+                rep.failCount++;
+                rep.score = Math.max(0, rep.score - 10); // -10 for fraud
+                console.log(`❌ ${peerId.substring(0, 8)} reputation decreased: ${rep.score}`);
+                
+                // 🚫 Blacklist if reputation too low
+                if (rep.score < 20) {
+                    addLog(`🚫 Peer ${peerId.substring(0, 8)} BLACKLISTED (Reputation: ${rep.score})`, "error");
+                    
+                    // Disconnect from peer
+                    if (connections[peerId]) {
+                        connections[peerId].close();
+                        delete connections[peerId];
+                    }
+                    
+                    // Remove from known peers
+                    knownPeers.delete(peerId);
+                }
+            }
+            
+            rep.lastUpdate = Date.now();
+            saveReputation();
+        }
+        
+        function isBlacklisted(peerId) {
+            const rep = getReputation(peerId);
+            return rep.score < 20;
+        }
+        
         // Load previously connected peers from localStorage
         function loadKnownPeers() {
             try {
@@ -700,6 +774,7 @@ NETWORK GROWTH:
         }
         
         loadKnownPeers();
+        loadReputation();
         
         // ============================================
         // PEERJS INITIALIZATION
@@ -954,9 +1029,22 @@ NETWORK GROWTH:
         // PROOF OF VALIDATION (PoV) - Verification System
         // ============================================
         
-        async function verifyLoss(receivedWeights, trainingData, reportedLoss) {
+        // 🎯 Efficient Verification using Spot-Checking (5-10% sampling)
+        async function verifyLoss(receivedWeights, trainingData, reportedLoss, peerReputation = 100) {
             try {
                 console.log("🧐 Verifying block: Reported Loss =", reportedLoss);
+                
+                // Adaptive sampling based on peer reputation
+                // High reputation → less sampling needed
+                // Low reputation → more thorough checking
+                let samplingRate = 0.1; // Default 10%
+                if (peerReputation > 150) {
+                    samplingRate = 0.05; // Trusted peer: 5%
+                } else if (peerReputation < 80) {
+                    samplingRate = 0.2;  // Suspicious peer: 20%
+                }
+                
+                console.log(`🎲 Sampling rate: ${(samplingRate * 100).toFixed(0)}% (Peer reputation: ${peerReputation})`);
                 
                 // 1. Create temporary verification model
                 const tempModel = await createModel();
@@ -965,7 +1053,7 @@ NETWORK GROWTH:
                 const tensors = receivedWeights.map(w => tf.tensor(w.data, w.shape));
                 tempModel.setWeights(tensors);
                 
-                // 3. 동일한 데이터로 Loss 재계산
+                // 3. Process full data but sample for verification
                 const { xs, ys } = processData(trainingData);
                 
                 if (!xs || !ys) {
@@ -975,26 +1063,58 @@ NETWORK GROWTH:
                     return false;
                 }
                 
-                const evaluation = tempModel.evaluate(xs, ys);
-                const actualLoss = await evaluation.data();
-                const calculatedLoss = actualLoss[0];
+                // 🎯 SPOT-CHECKING: Random sampling
+                const totalSamples = xs.shape[0];
+                const sampleSize = Math.max(5, Math.floor(totalSamples * samplingRate)); // At least 5 samples
                 
-                // 4. 정리
+                // Generate random indices
+                const indices = [];
+                const usedIndices = new Set();
+                while (indices.length < sampleSize) {
+                    const randomIdx = Math.floor(Math.random() * totalSamples);
+                    if (!usedIndices.has(randomIdx)) {
+                        indices.push(randomIdx);
+                        usedIndices.add(randomIdx);
+                    }
+                }
+                
+                // Extract sampled data
+                const xsSampled = tf.tidy(() => {
+                    return tf.stack(indices.map(i => xs.slice([i, 0], [1, xs.shape[1]]).squeeze()));
+                });
+                
+                const ysSampled = tf.tidy(() => {
+                    return tf.stack(indices.map(i => ys.slice([i, 0], [1, ys.shape[1]]).squeeze()));
+                });
+                
+                console.log(`📊 Spot-checking ${sampleSize}/${totalSamples} samples (${(samplingRate * 100).toFixed(0)}%)`);
+                
+                // 4. Evaluate on sampled data
+                const evaluation = tempModel.evaluate(xsSampled, ysSampled);
+                const actualLoss = await evaluation.data();
+                const sampledLoss = actualLoss[0];
+                
+                // 5. Cleanup
                 evaluation.dispose();
+                xsSampled.dispose();
+                ysSampled.dispose();
                 xs.dispose();
                 ys.dispose();
                 tensors.forEach(t => t.dispose());
                 tempModel.dispose();
                 
-                // 5. Verification: Is the difference between reported and calculated Loss within tolerance?
-                const diff = Math.abs(calculatedLoss - reportedLoss);
-                console.log(`📊 Calculated Loss: ${calculatedLoss.toFixed(4)}, Diff: ${diff.toFixed(4)}`);
+                // 6. Verification: Sampled loss should be close to reported loss
+                // Allow slightly more tolerance for sampled data
+                const adjustedThreshold = VALIDATION_THRESHOLD * 1.5; // More lenient for sampling
+                const diff = Math.abs(sampledLoss - reportedLoss);
                 
-                if (diff < VALIDATION_THRESHOLD) {
-                    console.log("✅ Validation PASSED");
+                console.log(`📊 Sampled Loss: ${sampledLoss.toFixed(4)}, Reported: ${reportedLoss.toFixed(4)}, Diff: ${diff.toFixed(4)}`);
+                
+                if (diff < adjustedThreshold) {
+                    console.log(`✅ Validation PASSED (Spot-check: ${sampleSize} samples)`);
                     return true;
                 } else {
-                    console.warn(`❌ Validation FAILED: Difference ${diff.toFixed(4)} exceeds threshold ${VALIDATION_THRESHOLD}`);
+                    console.warn(`❌ Validation FAILED: Difference ${diff.toFixed(4)} exceeds threshold ${adjustedThreshold.toFixed(4)}`);
                     return false;
                 }
             } catch (e) {
@@ -1007,12 +1127,20 @@ NETWORK GROWTH:
             const block = Object.assign(new Block(0, 0, "0", {}), data.block);
             const latestBlock = blockchain.getLatestBlock();
             
+            // 🚫 Check if peer is blacklisted
+            if (isBlacklisted(peerId)) {
+                addLog(`🚫 Block rejected: Peer ${peerId.substring(0, 8)} is blacklisted`, "error");
+                return;
+            }
+            
             if (block.index === latestBlock.index + 1) {
-                addLog(`🧐 Verifying block #${block.index} from ${peerId.substring(0, 8)}...`, "info");
+                const peerRep = getReputation(peerId);
+                addLog(`🧐 Verifying block #${block.index} from ${peerId.substring(0, 8)} (Rep: ${peerRep.score})...`, "info");
                 
                 // [Step 1] Basic blockchain validation (structural integrity)
                 if (!blockchain.isValidNewBlock(block, latestBlock)) {
                     addLog(`❌ Block #${block.index} rejected: Invalid structure`, "error");
+                    updateReputation(peerId, false); // Penalty for invalid structure
                     return;
                 }
                 
@@ -1040,15 +1168,17 @@ NETWORK GROWTH:
                 
                 // Verify if we have weights and training data
                 if (weightsToVerify && block.trainingData) {
-                    const isLossValid = await verifyLoss(weightsToVerify, block.trainingData, block.loss);
+                    // 🎯 Efficient verification with reputation-based sampling
+                    const isLossValid = await verifyLoss(weightsToVerify, block.trainingData, block.loss, peerRep.score);
                     
                     if (!isLossValid) {
                         addLog(`⚠️ Block #${block.index} rejected: Loss verification FAILED (Fraud suspected!)`, "error");
-                        // TODO: Add malicious node to blacklist
+                        updateReputation(peerId, false); // Heavy penalty for fraud
                         return;
                     }
                     
                     addLog(`✅ PoV passed: Loss is mathematically correct`, "success");
+                    updateReputation(peerId, true); // Reward honest behavior
                     
                     // 🎁 Award validator reward (reward for verification work)
                     addBalance(VALIDATION_REWARD);
