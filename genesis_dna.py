@@ -316,11 +316,14 @@ class MindHashNode:
         def stats():
             """[업데이트] 네트워크 통계 (활성 노드 수 등)"""
             last_block = self.ledger.get_last_block()
+            idx = last_block['idx'] if last_block else 0
+            generation = 1 + (idx // EVOLUTION_INTERVAL)
             active_count = self.get_active_node_count()
-            print(f"📊 /stats called: {active_count} active nodes, {len(self.active_nodes)} tracked")
+            print(f"📊 /stats called: {active_count} active nodes, Gen {generation}, Block {idx}")
             return jsonify({
                 "active_nodes": active_count,
-                "total_blocks": last_block['idx'] if last_block else 0,
+                "total_blocks": idx,
+                "generation": generation,
                 "version": VERSION,
                 "tracked_addresses": list(self.active_nodes.keys())  # 디버깅용
             })

@@ -689,14 +689,31 @@
             }
         }
 
-        // --- Network Stats Update (Real-time Active Nodes) ---
+        // --- Network Stats Update (Real-time Active Nodes & Generation) ---
         async function updateNetworkStats() {
             try {
                 const res = await fetch(`${API_URL}/stats`);
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('active-nodes').innerText = data.active_nodes;
-                    console.log(`📊 Network Stats: ${data.active_nodes} active nodes`, data.tracked_addresses || []);
+                    
+                    // [FIX] Update generation from server
+                    if (data.generation && data.generation !== currentGeneration) {
+                        const oldGen = currentGeneration;
+                        currentGeneration = data.generation;
+                        const suffix = currentGeneration === 1 ? 'st' : currentGeneration === 2 ? 'nd' : currentGeneration === 3 ? 'rd' : 'th';
+                        document.getElementById('brain-gen').innerText = `${currentGeneration}${suffix} Gen`;
+                        console.log(`🔄 Generation synced from ${oldGen} to ${currentGeneration} (Block ${data.total_blocks})`);
+                        
+                        // If model exists and we need to upgrade, recreate model with new generation
+                        if (model && currentGeneration > oldGen) {
+                            console.log(`🧠 Recreating model for generation ${currentGeneration}...`);
+                            model.dispose();
+                            model = null; // Will be recreated when mining starts
+                        }
+                    }
+                    
+                    console.log(`📊 Network: ${data.active_nodes} nodes, Gen ${data.generation}, Block ${data.total_blocks}`);
                 }
             } catch (e) {
                 console.warn("Failed to fetch network stats:", e);
@@ -732,7 +749,10 @@
             
             if (!isMining) {
                 // Start
-                if (!model) model = await createModel();
+                if (!model) {
+                    console.log(`🧠 Creating model for generation ${currentGeneration}...`);
+                    model = await createModel(currentGeneration);
+                }
                 
                 isMining = true;
                 btn.innerText = "STOP MINING";
