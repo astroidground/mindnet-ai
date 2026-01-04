@@ -293,7 +293,10 @@ NETWORK GROWTH:
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">🌐 Network Generation</span>
-                        <span id="network-generation" class="font-bold text-cyan-400">-</span>
+                        <span id="network-generation" class="font-bold text-cyan-400">
+                            <span id="network-gen-value">-</span>
+                            <span id="sync-warning" class="text-xs text-red-400 hidden">⚠️ SYNC</span>
+                        </span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-gray-400">📈 Next Evolution</span>
@@ -995,21 +998,44 @@ NETWORK GROWTH:
             
             replaceChain(newChain) {
                 if (newChain.length > this.chain.length && this.isValidChain(newChain)) {
-                    console.log(`🔄 Replacing chain: ${this.chain.length} → ${newChain.length} blocks`);
-                    
                     const oldHeight = this.getBlockchainHeight();
+                    console.log(`🔄 Replacing chain: ${this.chain.length} → ${newChain.length} blocks (Height: ${oldHeight} → ${newChain.length - 1})`);
+                    
                     this.chain = newChain;
                     this.saveChain();
                     
                     const newHeight = this.getBlockchainHeight();
                     
+                    // Update UI immediately
+                    document.getElementById('blocks-received').innerText = newHeight;
+                    
                     // 🧬 Check if generation changed due to chain replacement
                     const oldGen = getGenerationFromBlockHeight(oldHeight);
                     const newGen = getGenerationFromBlockHeight(newHeight);
                     
-                    if (oldGen !== newGen && model && isMining) {
-                        console.log(`⚠️ Generation changed: ${oldGen} → ${newGen} (chain sync)`);
-                        addLog(`⚠️ Network generation changed: ${oldGen} → ${newGen}. Restart mining to update.`, "warn");
+                    console.log(`📊 Generation check: ${oldGen} → ${newGen}`);
+                    
+                    // Update network generation display
+                    const genText = ['1st', '2nd', '3rd'];
+                    const netGenText = newGen <= 3 ? genText[newGen - 1] : `${newGen}th`;
+                    const networkGenEl = document.getElementById('network-gen-value');
+                    if (networkGenEl) {
+                        networkGenEl.innerText = `${netGenText} Gen`;
+                    }
+                    
+                    if (oldGen !== newGen) {
+                        addLog(`🔄 Network updated to Generation ${newGen}`, "info");
+                        
+                        if (model && isMining && currentGeneration !== newGen) {
+                            console.log(`⚠️ Your generation (${currentGeneration}) differs from network (${newGen})`);
+                            addLog(`⚠️ You are on Gen ${currentGeneration}, but network is Gen ${newGen}. Restart mining!`, "warn");
+                            
+                            // Show sync warning
+                            const syncWarning = document.getElementById('sync-warning');
+                            if (syncWarning) {
+                                syncWarning.classList.remove('hidden');
+                            }
+                        }
                     }
                     
                     return true;
@@ -1527,12 +1553,25 @@ NETWORK GROWTH:
                     });
                 }
                 
-                // Request blockchain if peer might have longer chain
+                // Request blockchain immediately and periodically
+                // Immediate request
+                sendToPeer(conn, {
+                    type: 'request_chain'
+                });
+                
+                // Request again after 2 seconds (in case first was missed)
                 setTimeout(() => {
                     sendToPeer(conn, {
                         type: 'request_chain'
                     });
-                }, 1000);
+                }, 2000);
+                
+                // Request again after 5 seconds (ensure sync)
+                setTimeout(() => {
+                    sendToPeer(conn, {
+                        type: 'request_chain'
+                    });
+                }, 5000);
             });
             
             conn.on('data', (data) => {
@@ -2570,7 +2609,15 @@ NETWORK GROWTH:
                 const networkGen = targetGeneration;
                 const genText = ['1st', '2nd', '3rd'];
                 const netGenText = networkGen <= 3 ? genText[networkGen - 1] : `${networkGen}th`;
-                document.getElementById('network-generation').innerText = `${netGenText} Gen`;
+                document.getElementById('network-gen-value').innerText = `${netGenText} Gen`;
+                
+                // Show sync warning if generations don't match
+                const syncWarning = document.getElementById('sync-warning');
+                if (currentGeneration !== networkGen) {
+                    syncWarning.classList.remove('hidden');
+                } else {
+                    syncWarning.classList.add('hidden');
+                }
                 
                 // Check if local generation is behind
                 if (currentGeneration < targetGeneration - 1) {
@@ -2817,14 +2864,31 @@ NETWORK GROWTH:
                     // 🧬 Determine generation based on NETWORK blockchain height
                     // First, try to sync with network to get latest height
                     if (Object.keys(connections).length > 0) {
-                        addLog(`🔄 Syncing with network before starting...`, "info");
-                        // Request chain from all peers
-                        Object.values(connections).forEach(conn => {
-                            sendToPeer(conn, { type: 'request_chain' });
-                        });
+                        addLog(`🔄 Syncing blockchain with ${Object.keys(connections).length} peer(s)...`, "info");
                         
-                        // Wait 2 seconds for chain sync
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        const myHeight = blockchain.getBlockchainHeight();
+                        console.log(`📊 My blockchain height: ${myHeight}`);
+                        
+                        // Request chain from all peers (multiple times for reliability)
+                        for (let attempt = 0; attempt < 3; attempt++) {
+                            Object.values(connections).forEach(conn => {
+                                sendToPeer(conn, { type: 'request_chain' });
+                            });
+                            
+                            // Wait 1 second between attempts
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                        
+                        const finalHeight = blockchain.getBlockchainHeight();
+                        console.log(`📊 Final blockchain height: ${finalHeight}`);
+                        
+                        if (finalHeight > myHeight) {
+                            addLog(`✅ Blockchain synced: ${myHeight} → ${finalHeight} blocks`, "success");
+                        } else {
+                            addLog(`ℹ️ Blockchain already up to date (${finalHeight} blocks)`, "info");
+                        }
+                    } else {
+                        addLog(`⚠️ No peers connected - starting with local blockchain`, "warn");
                     }
                     
                     const blockHeight = blockchain.getBlockchainHeight();
@@ -2955,7 +3019,22 @@ NETWORK GROWTH:
             const networkGeneration = getGenerationFromBlockHeight(blockHeight);
             const genText = ['1st', '2nd', '3rd'];
             const netGenText = networkGeneration <= 3 ? genText[networkGeneration - 1] : `${networkGeneration}th`;
-            document.getElementById('network-generation').innerText = `${netGenText} Gen`;
+            
+            const networkGenEl = document.getElementById('network-gen-value');
+            if (networkGenEl) {
+                networkGenEl.innerText = `${netGenText} Gen`;
+            }
+            
+            // Show blockchain height next to generation
+            document.getElementById('blocks-received').innerText = blockHeight;
+            
+            // Show sync warning if mining and generations don't match
+            const syncWarning = document.getElementById('sync-warning');
+            if (syncWarning && isMining && currentGeneration !== networkGeneration) {
+                syncWarning.classList.remove('hidden');
+            } else if (syncWarning) {
+                syncWarning.classList.add('hidden');
+            }
             
             // Update explorer if it's the active tab
             if (currentTab === 'explorer') {
