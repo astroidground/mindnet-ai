@@ -620,14 +620,61 @@ NETWORK GROWTH:
             return model;
         }
         
-        function generateTrainingData() {
-            // Generate random text for training
-            const words = ['genesis', 'neural', 'network', 'distributed', 'learning', 'ai', 'blockchain', 'peer', 'intelligence', 'evolution'];
-            let text = '';
-            for (let i = 0; i < TRAINING_DATA_LENGTH; i++) {
-                text += words[Math.floor(Math.random() * words.length)] + ' ';
+        // --- Wikipedia Data Foraging (Same as Python server!) ---
+        const WIKI_TOPICS = [
+            "Artificial_intelligence", 
+            "Evolution", 
+            "Blockchain", 
+            "Neural_network", 
+            "Machine_learning",
+            "Genetic_algorithm", 
+            "Life", 
+            "Universe", 
+            "Philosophy", 
+            "Mathematics",
+            "Computer_science",
+            "Quantum_computing",
+            "Cryptography",
+            "Information_theory"
+        ];
+        
+        let cachedWikiText = null;
+        let lastFetchTime = 0;
+        const FETCH_INTERVAL = 30000; // Fetch new data every 30 seconds
+        
+        async function fetchWikipediaData() {
+            try {
+                const topic = WIKI_TOPICS[Math.floor(Math.random() * WIKI_TOPICS.length)];
+                const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${topic}`;
+                
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Wikipedia fetch failed");
+                
+                const data = await response.json();
+                const text = data.extract || data.description || "";
+                
+                if (text.length > 100) {
+                    addLog(`📚 Fetched Wikipedia: ${topic}`, "info");
+                    return text;
+                }
+            } catch (e) {
+                console.warn("Wikipedia fetch error:", e);
             }
-            return text.toLowerCase();
+            
+            // Fallback
+            return "Artificial intelligence and machine learning are transforming our world through neural networks and distributed computing systems.";
+        }
+        
+        async function generateTrainingData() {
+            const now = Date.now();
+            
+            // Fetch new data if cache is old or empty
+            if (!cachedWikiText || (now - lastFetchTime > FETCH_INTERVAL)) {
+                cachedWikiText = await fetchWikipediaData();
+                lastFetchTime = now;
+            }
+            
+            return cachedWikiText;
         }
         
         function processData(text) {
@@ -661,7 +708,7 @@ NETWORK GROWTH:
             if (!isMining || !model) return;
             
             try {
-                const trainingText = generateTrainingData();
+                const trainingText = await generateTrainingData();
                 const { xs, ys } = processData(trainingText);
                 
                 if (!xs || !ys) {
